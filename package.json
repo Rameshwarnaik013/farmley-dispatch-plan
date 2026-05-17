@@ -1,0 +1,11 @@
+{
+  "name": "farmley-dispatch-plan",
+  "version": "1.0.0",
+  "description": "Farmley Logistics Dispatch Plan Generator",
+  "private": true,
+  "scripts": {
+    "dev": "npx serve public -l 3000",
+    "build": "echo 'Static site — no build step required'",
+    "start": "npx serve public -l 3000"
+  }
+}

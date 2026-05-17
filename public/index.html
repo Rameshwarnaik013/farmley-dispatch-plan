@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dispatch Plan Generator — Farmley</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800;900&display=swap');
+:root{
+  --bg:#0a0a0f;--surface:#111118;--surface2:#1a1a25;--border:#2a2a3a;
+  --accent:#00e5a0;--accent2:#7c3aed;--warn:#ff4444;--text:#e8e8f0;--dim:#7070a0;
+  --mono:'Montserrat',sans-serif;--sans:'Montserrat',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;}
+body::before{content:'';position:fixed;inset:0;
+  background-image:linear-gradient(rgba(0,229,160,.03)1px,transparent 1px),linear-gradient(90deg,rgba(0,229,160,.03)1px,transparent 1px);
+  background-size:40px 40px;pointer-events:none;z-index:0;}
+.app{position:relative;z-index:1;max-width:1400px;margin:0 auto;padding:40px 24px;}
+
+/* NAV TABS */
+.nav-tabs{display:flex;gap:4px;margin-bottom:32px;border-bottom:1px solid var(--border);}
+.nav-tab{font-family:var(--mono);font-size:12px;padding:10px 20px;cursor:pointer;color:var(--dim);border:none;background:transparent;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .2s;letter-spacing:1px;text-transform:uppercase;}
+.nav-tab:hover{color:var(--text);}
+.nav-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+
+.tab-content{display:none;}
+.tab-content.active{display:block;}
+
+/* HEADER */
+header{margin-bottom:40px;}
+.badge{display:inline-block;font-family:var(--mono);font-size:11px;color:var(--accent);border:1px solid var(--accent);padding:4px 10px;border-radius:2px;letter-spacing:2px;margin-bottom:16px;text-transform:uppercase;}
+h1{font-size:clamp(26px,4vw,44px);font-weight:800;line-height:1.1;background:linear-gradient(135deg,var(--text) 40%,var(--accent));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:10px;}
+.subtitle{color:var(--dim);font-size:14px;}
+
+/* UPLOAD GRID */
+.upload-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px;margin-bottom:28px;}
+.upload-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px;cursor:pointer;position:relative;overflow:hidden;transition:border-color .2s,transform .2s;}
+.upload-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent2),var(--accent));opacity:0;transition:opacity .2s;}
+.upload-card:hover{border-color:var(--accent);transform:translateY(-2px);}
+.upload-card:hover::before,.upload-card.loaded::before{opacity:1;}
+.upload-card.loaded{border-color:var(--accent);}
+.card-label{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;}
+.card-name{font-size:13px;font-weight:700;margin-bottom:3px;}
+.card-desc{font-size:11px;color:var(--dim);line-height:1.4;}
+.card-status{margin-top:10px;font-family:var(--mono);font-size:11px;}
+.card-status.empty{color:var(--dim);}.card-status.ok{color:var(--accent);}
+.upload-icon{width:28px;height:28px;border:1px dashed var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;margin-bottom:10px;font-size:14px;}
+.upload-card:hover .upload-icon,.upload-card.loaded .upload-icon{border-color:var(--accent);}
+input[type="file"]{display:none;}
+
+/* CONTROLS */
+.controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:28px;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:700;padding:11px 24px;border-radius:6px;border:none;cursor:pointer;transition:all .2s;}
+.btn-primary{background:var(--accent);color:#000;}
+.btn-primary:hover{background:#00ffb2;box-shadow:0 4px 20px rgba(0,229,160,.3);}
+.btn-primary:disabled{background:var(--border);color:var(--dim);cursor:not-allowed;}
+.btn-secondary{background:transparent;color:var(--text);border:1px solid var(--border);}
+.btn-secondary:hover{border-color:var(--accent);color:var(--accent);}
+.btn-ghost{background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid rgba(124,58,237,.3);}
+.btn-ghost:hover{background:rgba(124,58,237,.25);}
+
+/* LOG */
+.log{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px;font-family:var(--mono);font-size:12px;line-height:1.8;max-height:180px;overflow-y:auto;display:none;}
+.log.visible{display:block;}
+.log-line{color:var(--dim);}.log-line.ok{color:var(--accent);}.log-line.err{color:var(--warn);}.log-line.info{color:#60a0ff;}
+
+/* PREVIEW */
+.preview-section{display:none;}
+.preview-section.visible{display:block;}
+.preview-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;}
+.preview-title{font-size:17px;font-weight:700;}
+.preview-meta{font-family:var(--mono);font-size:11px;color:var(--dim);}
+.table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:8px;background:var(--surface);max-height:560px;overflow-y:auto;}
+table{border-collapse:collapse;width:100%;font-size:11px;white-space:nowrap;}
+th{background:var(--surface2);color:var(--accent);font-family:var(--mono);font-size:10px;letter-spacing:.8px;text-transform:uppercase;padding:9px 12px;text-align:left;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:1;}
+td{padding:7px 12px;border-bottom:1px solid rgba(255,255,255,.03);font-family:var(--mono);font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:rgba(0,229,160,.03);}
+tr.red-row td{background:rgba(255,68,68,.07);}
+tr.red-row:hover td{background:rgba(255,68,68,.13);}
+.tag{display:inline-block;padding:2px 7px;border-radius:3px;font-size:10px;font-family:var(--mono);font-weight:700;}
+.tag-partial{background:rgba(124,58,237,.2);color:#a78bfa;}
+.tag-pending{background:rgba(0,229,160,.1);color:var(--accent);}
+.tag-p1{background:rgba(255,68,68,.2);color:#ff8080;}
+.tag-p2{background:rgba(255,140,0,.2);color:#ffb347;}
+
+/* CONDITIONS PAGE */
+.cond-grid{display:grid;gap:12px;}
+.cond-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px;display:grid;grid-template-columns:40px 1fr;gap:12px;align-items:start;}
+.cond-num{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--accent);opacity:.4;line-height:1;}
+.cond-col{font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;}
+.cond-rule{font-size:13px;color:var(--text);line-height:1.5;}
+.cond-tag{display:inline-block;font-family:var(--mono);font-size:10px;background:rgba(124,58,237,.2);color:#a78bfa;padding:2px 8px;border-radius:3px;margin-left:8px;}
+.section-title{font-size:20px;font-weight:700;margin-bottom:16px;color:var(--text);}
+.section-sub{color:var(--dim);font-size:13px;margin-bottom:20px;}
+.legend{display:flex;gap:14px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--dim);}
+
+.spinner{display:none;width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.spinner.visible{display:block;}
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:var(--surface);}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+::-webkit-scrollbar-thumb:hover{background:var(--accent);}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="badge">FARMLEY LOGISTICS</div>
+    <h1>Dispatch Plan Generator</h1>
+    <p class="subtitle">Upload each source tab as a separate Excel file → generates today's Dispatch Plan output</p>
+  </header>
+
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="switchTab('generator')">Generator</button>
+    <button class="nav-tab" onclick="switchTab('conditions')">Conditions Applied</button>
+  </div>
+
+  <!-- ═══ TAB 1: GENERATOR ═══════════════════════════════════════════════ -->
+  <div class="tab-content active" id="tab-generator">
+    <div class="upload-grid" id="uploadGrid"></div>
+
+    <div class="controls">
+      <button class="btn btn-primary" id="generateBtn" disabled onclick="generate()">▶ Generate Plan</button>
+      <button class="btn btn-secondary" id="exportBtn" style="display:none" onclick="exportToExcel()">⬇ Export Excel</button>
+
+      <div class="spinner" id="spinner"></div>
+      <span id="statusText" style="font-family:var(--mono);font-size:12px;color:var(--dim)"></span>
+    </div>
+
+    <div class="log" id="log"></div>
+
+    <div class="preview-section" id="preview">
+      <div class="preview-header">
+        <div>
+          <div class="preview-title">Dispatch Plan — Today</div>
+          <div class="preview-meta" id="previewMeta"></div>
+        </div>
+        <div class="legend">
+          <span style="color:var(--warn)">■</span> Red = EDD &gt; 1 &nbsp;|&nbsp;
+          <span class="tag tag-p1">P1</span> = EDD 0 or 1 &nbsp;|&nbsp;
+          <span class="tag tag-p2">P2</span> = EDD &lt; 0
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="outputTable"></table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB 2: CONDITIONS ═══════════════════════════════════════════════ -->
+  <div class="tab-content" id="tab-conditions">
+    <div class="section-title">Conditions Applied in Code</div>
+    <div class="section-sub">Every rule from the CONDITIONS tab — and how it maps to code logic.</div>
+    <div class="cond-grid" id="condGrid"></div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════════════════════════════ */
+const files = { dump:null, leadtime:null, appointments:null, yesterday:null, cfaGurgaon:null };
+let outputRows = [];
+let logLines = [];
+let refData = { leadtime:[], appointments:[], yesterday:[] };
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONDITIONS DATA (for display)
+═══════════════════════════════════════════════════════════════════════════ */
+const CONDITIONS = [
+  { sno:1,  col:'Row Filter',               rule:'Keep only rows where Pending Kgs > 0. Delete all rows with Pending Kgs = 0.' },
+  { sno:2,  col:'Row Filter',               rule:'Keep only rows where returned_qty = 0. Delete rows where returned_qty > 0.' },
+  { sno:3,  col:'Final Dispatch Status, Dispatch_Status', rule:'If any one among Origin_Indore_Status, Origin_Purnea_Status, Origin_UD_Foods_Status contains Partial Dispatch, populate columns Dispatch_Status and Final Dispatch Status as Partial Dispatch. If none contain Partial Dispatch but any contains Pending, populate columns Dispatch_Status and Final Dispatch Status as Pending. Keep only rows where Final Dispatch Status is Partial Dispatch or Pending.' },
+  { sno:4,  col:'CC',                       rule:'Concatenate Sales_Order_No + Item_Code from Dump tab.' },
+  { sno:5,  col:'Day',                      rule:'VLOOKUP: Match Origin + Shipping State from Dump → LEAD TIME tab (Origin, Shipping State, Day). Fill the Day column from LEAD TIME.' },
+  { sno:6,  col:'Appt',                     rule:'If client_type is FK-Grocery-VS48860, FK-Hyperlocal-VS46867, or FK-Alpha-VS46867: VLOOKUP on Po_No in Appointments tab (PO-No → Appt date column). If client_type is "Now": Appt = Sales_Order_Date + 7.' },
+  { sno:7,  col:'Remark',                   rule:'Remark is looked up directly from Dispatch Plan_yesterday using the CC column match. Fetches the Remark column exactly as-is.' },
+  { sno:10, col:'If Dispatched, then EDD',  rule:'= Remark + Day (Excel serial addition). Blank if Remark is a text value (e.g. "FTL 7 May Appt", "Close", "Appt Required").' },
+  { sno:11, col:'If Dispatched, then EDD',  rule:'Special case — Airlines: If_Dispatched_EDD is still Remark + Day. (Condition 17 in sheet means Airlines EDD column = po_expiry_date, not the If_Dispatched_EDD column.)' },
+  { sno:12, col:'EDD',                      rule:'For FK types (FK-Grocery, FK-Hyperlocal, FK-Alpha): EDD = If_Dispatched_EDD − Appt.' },
+  { sno:13, col:'EDD',                      rule:'For all other client types (incl. Airlines): EDD = If_Dispatched_EDD − po_expiry_date (both as Excel serial numbers).' },
+  { sno:14, col:'EDD',                      rule:'If po_expiry_date is missing AND not FK: EDD = If_Dispatched_EDD (raw serial). If both are missing: EDD is blank.' },
+  { sno:15, col:'Priority',                 rule:'P1 = EDD is 0 or 1. P2 = EDD < 0 (negative). No priority set if EDD > 1 or EDD is blank.' },
+  { sno:16, col:'Red Highlight',            rule:'Highlight row red if EDD > 1 (numeric). Rows where EDD is blank or text are not highlighted.' },
+  { sno:17, col:'Merge',                    rule:'Concatenate Sales_Order_No + Branch.' },
+  { sno:18, col:'Dispatch_Status',          rule:'If any Origin Status contains Partial Dispatch -> Partial Dispatch. Else if Pending -> Pending. Overrides Dump value.' },
+  { sno:19, col:'Origin → CFA (Gurgaon)',   rule:'Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa.' },
+  { sno:20, col:'Origin → CFA (Gurgaon)',   rule:'Condition 2: Item_Name must be in the 56-item CFA Gurgaon approved SKU list. Condition 3: Storage Beyond Sqfeet value > 0 in CFA Gurgaon Stock file. Condition 4: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 4 conditions are met → Origin = "CFA (Gurgaon)".' },
+  { sno:21, col:'Remark → "closed"',        rule:'If Pending Kgs < Origin Kgs AND Pending Kgs > 0 AND customer_group is Modern Trade or Quick Commerce AND Customer is Avenue E-Commerce Ltd → Remark = "closed" (overrides VLOOKUP).' },
+  { sno:22, col:'Delivered_Qty',            rule:'If Delivered_Qty is blank or missing, set it to 0.' },
+];
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UPLOAD CARDS
+═══════════════════════════════════════════════════════════════════════════ */
+const CARDS = [
+  { key:'dump',         name:'Dump',                    desc:'Master sales order data',     icon:'📦' },
+  { key:'leadtime',     name:'LEAD TIME',               desc:'Origin × State → Days',       icon:'🗓'  },
+  { key:'appointments', name:'Appointments',            desc:'PO-No → Appointment dates',   icon:'📅' },
+  { key:'yesterday',    name:'Dispatch Plan_yesterday', desc:'Previous day plan (remarks)',  icon:'📋' },
+  { key:'cfaGurgaon',   name:'CFA Gurgaon Stock',       desc:'Stock availability (optional)',icon:'🏭' },
+];
+
+const grid = document.getElementById('uploadGrid');
+CARDS.forEach(c => {
+  const el = document.createElement('label');
+  el.className = 'upload-card'; el.id = 'card-'+c.key;
+  el.innerHTML = `<input type="file" accept=".xlsx,.xls" onchange="handleFile('${c.key}',this)">
+    <div class="upload-icon">${c.icon}</div>
+    <div class="card-label">Input File</div>
+    <div class="card-name">${c.name}</div>
+    <div class="card-desc">${c.desc}</div>
+    <div class="card-status empty" id="status-${c.key}">Click to upload →</div>`;
+  grid.appendChild(el);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONDITIONS CARDS
+═══════════════════════════════════════════════════════════════════════════ */
+const cg = document.getElementById('condGrid');
+CONDITIONS.forEach(c => {
+  const el = document.createElement('div');
+  el.className = 'cond-card';
+  el.innerHTML = `<div class="cond-num">${c.sno}</div>
+    <div>
+      <div class="cond-col">${c.col}</div>
+      <div class="cond-rule">${c.rule}</div>
+    </div>`;
+  cg.appendChild(el);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB SWITCHING
+═══════════════════════════════════════════════════════════════════════════ */
+function switchTab(tab) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+  event.target.classList.add('active');
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FILE HANDLING
+═══════════════════════════════════════════════════════════════════════════ */
+function handleFile(key, input) {
+  const f = input.files[0]; if (!f) return;
+  files[key] = f;
+  document.getElementById('status-'+key).textContent = '✓ '+f.name;
+  document.getElementById('status-'+key).className = 'card-status ok';
+  document.getElementById('card-'+key).classList.add('loaded');
+  document.getElementById('generateBtn').disabled =
+    !(files.dump && files.leadtime && files.appointments && files.yesterday);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UTILITIES
+═══════════════════════════════════════════════════════════════════════════ */
+function log(msg, type='info') {
+  logLines.push({msg,type});
+  const el = document.getElementById('log');
+  el.innerHTML = logLines.map(l=>`<div class="log-line ${l.type}">${l.msg}</div>`).join('');
+  el.classList.add('visible'); el.scrollTop = el.scrollHeight;
+}
+
+async function readWB(file) {
+  return new Promise((res,rej) => {
+    const r = new FileReader();
+    r.onload = e => { try { res(XLSX.read(e.target.result,{type:'binary',cellDates:false})); } catch(err){rej(err);} };
+    r.onerror = rej; r.readAsBinaryString(file);
+  });
+}
+
+function sheet2json(wb, idx=0) {
+  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[idx]], {defval:''});
+}
+
+// Convert any date representation → Excel serial integer (or null)
+function toSerial(val) {
+  if (val===null || val===undefined || val==='') return null;
+  if (typeof val==='number') return Math.round(val);
+  if (typeof val==='string') {
+    const n = parseFloat(val.trim());
+    if (!isNaN(n) && val.trim().match(/^\d+(\.\d+)?$/)) return Math.round(n);
+    // check for DD-MM-YYYY or DD/MM/YYYY
+    const dm = val.trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (dm) {
+      const d = new Date(`${dm[3]}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}T00:00:00Z`);
+      if (!isNaN(d)) return Math.round((d - new Date('1899-12-30T00:00:00Z')) / 86400000);
+    }
+    // date string like "2026-04-25"
+    const d = new Date(val);
+    if (!isNaN(d)) return Math.round((d - new Date('1899-12-30T00:00:00Z')) / 86400000);
+    return null;
+  }
+  return null;
+}
+
+function serialToDateStr(s) {
+  if (!s || isNaN(s)) return '';
+  const d = new Date((s - 25569) * 86400000);
+  return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+}
+
+const nor = s => String(s||'').trim().toLowerCase();
+const fc = (obj,...names) => { for(const n of names){ const f=Object.keys(obj).find(k=>nor(k)===nor(n)); if(f)return f; } return names[0]; };
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MAIN GENERATION LOGIC
+═══════════════════════════════════════════════════════════════════════════ */
+async function generate() {
+  logLines = [];
+  document.getElementById('log').innerHTML='';
+  document.getElementById('preview').classList.remove('visible');
+  document.getElementById('exportBtn').style.display='none';
+  document.getElementById('spinner').classList.add('visible');
+  document.getElementById('generateBtn').disabled=true;
+  try { await run(); }
+  catch(err) { log('ERROR: '+err.message,'err'); console.error(err); }
+  document.getElementById('spinner').classList.remove('visible');
+  document.getElementById('generateBtn').disabled=false;
+}
+
+async function run() {
+  log('Reading uploaded files...','info');
+  const [dWB,ltWB,apWB,yWB] = await Promise.all([
+    readWB(files.dump), readWB(files.leadtime), readWB(files.appointments), readWB(files.yesterday)
+  ]);
+  const cfaWB = files.cfaGurgaon ? await readWB(files.cfaGurgaon) : null;
+
+  const dump      = sheet2json(dWB, 0);
+  const ltData    = sheet2json(ltWB, 0);
+  const apptData  = sheet2json(apWB, 0);
+  const yesterday = sheet2json(yWB, 0);
+  const cfaData   = cfaWB ? sheet2json(cfaWB, 0) : [];
+
+  log(`Dump: ${dump.length} rows | Lead Time: ${ltData.length} | Appointments: ${apptData.length} | Yesterday: ${yesterday.length}` + (cfaData.length ? ` | CFA Gurgaon: ${cfaData.length}` : ''),'ok');
+
+  // Store reference data globally for formula-based export
+  refData.leadtime = ltData;
+  refData.appointments = apptData;
+  refData.yesterday = yesterday;
+
+  /* ── CONDITION 5: Lead Time map ─────────────────────────────────────── */
+  const ltMap = {};
+  ltData.forEach(r => {
+    const orig  = nor(r.Origin||r.origin||'');
+    const state = nor(r['Shipping State']||r.Shipping_State||r['shipping state']||'');
+    const day   = parseInt(r.Day||r.day)||0;
+    if (orig && state) ltMap[orig+'||'+state] = day;
+  });
+  log(`Lead Time map: ${Object.keys(ltMap).length} entries`,'ok');
+
+  /* ── CONDITION 6: Appointments map ──────────────────────────────────── */
+  const apptMap = {};
+  if (apptData.length > 0) {
+    const s = apptData[0];
+    const poKey = Object.keys(s).find(k => /po.?no/i.test(String(k))) || 'Po_No';
+    const dtKey = Object.keys(s).find(k => /appt.?date/i.test(String(k))) || 'Appt date';
+    apptData.forEach(r => {
+      const dt = toSerial(r[dtKey]);
+      if (!dt) return;
+      const po1 = nor(r['Po_No']);
+      const po2 = nor(r['S0- No.']);
+      const po3 = nor(r['New SO-14']);
+      const po4 = nor(r[poKey]);
+      if (po1) apptMap[po1] = dt;
+      if (po2) apptMap[po2] = dt;
+      if (po3) apptMap[po3] = dt;
+      if (po4) apptMap[po4] = dt;
+    });
+  }
+  log(`Appointments map: ${Object.keys(apptMap).length} PO entries`,'ok');
+
+  /* ── CFA Gurgaon Stock map ─────────────────────────────────────────── */
+  const cfaStockMap = {};
+  if (cfaData.length > 0) {
+    const cs = cfaData[0];
+    const cfaItemKey = Object.keys(cs).find(k => /item.?name/i.test(String(k))) || 'Item Name';
+    const cfaStorageKey = Object.keys(cs).find(k => /storage.?beyond/i.test(String(k))) || 'Storage Beyond Sqfeet Gurgaon Finished Goods - CBSPL';
+    cfaData.forEach(r => {
+      const itemName = nor(r[cfaItemKey]);
+      const storageVal = parseFloat(r[cfaStorageKey]) || 0;
+      if (itemName) cfaStockMap[itemName] = storageVal;
+    });
+    log(`CFA Gurgaon stock map: ${Object.keys(cfaStockMap).length} items`,'ok');
+  }
+
+  /* ── CFA Gurgaon constants ─────────────────────────────────────────── */
+  const CFA_CUSTOMER_GROUPS = new Set(['amazon retail india','category a','vending','horeca']);
+  const CFA_SHIPPING_STATES = new Set([
+    'uttarakhand','uttar pradesh','punjab','delhi','jammu and kashmir',
+    'himachal pradesh','haryana','rajasthan','ladakh','chandigarh'
+  ]);
+  const CFA_ITEM_LIST = new Set([
+    'apple pie date bite farmley sachet 20 g - single serve',
+    'apple pie date bite farmley tin jar 200g',
+    'assorted date bites farmley box 180g',
+    'choco date bite farmley sachet 20 g - single serve',
+    'choco date bite farmley tin jar 200g',
+    'classic date bites farmley sachet 20 g - single serve',
+    'classic date bites farmley tin jar 200g',
+    'dry fruit mix trail mix farmley pouch 200 g',
+    'farmley almond 200 g',
+    'farmley almond 500g',
+    'farmley almond 1 kg',
+    'farmley apricot 200 g',
+    'farmley california almonds 200 g pouch',
+    'farmley california almonds 500 g pouch',
+    'farmley california almonds 1 kg jar',
+    'farmley cashew 200 g',
+    'farmley cashew 500g',
+    'farmley cashew 1 kg',
+    'farmley cranberries 200 g',
+    'farmley dates 500g',
+    'farmley figs 200 g',
+    'farmley golden raisins 200 g',
+    'farmley green raisins 500 g pouch',
+    'farmley mixed seeds 200g',
+    'farmley peri peri cashews 200 g pouch',
+    'farmley pistachio 200 g',
+    'farmley prime walnut kernels 200 g pouch',
+    'farmley pumpkin seeds 200g',
+    'farmley raisins 200 g',
+    'farmley raisins 500g',
+    'farmley roasted almonds 200 g',
+    'farmley roasted cashews 200 g pouch',
+    'farmley salted almonds 200 g pouch',
+    'farmley seed mix trail mix pouch 200g',
+    'farmley sliced almonds 200 g',
+    'farmley slivered almonds 200 g',
+    'farmley sunflower seeds 200g',
+    'farmley walnut kernels 200 g',
+    'fig date bite farmley sachet 20 g - single serve',
+    'fig date bite farmley tin jar 200g',
+    'luxury date bites farmley box 180g',
+    'mango date bite farmley sachet 20 g - single serve',
+    'mango date bite farmley tin jar 200g',
+    'protein date bite farmley sachet 20 g - single serve',
+    'protein date bite farmley tin jar 200g',
+    'super mix trail mix farmley pouch 200 g',
+    'walnut brownie date bite farmley sachet 20 g - single serve',
+    'walnut brownie date bite farmley tin jar 200g',
+    'farmley berries and seeds trail mix pouch 200 g',
+    'farmley breakfast trail mix pouch 200 g',
+    'farmley chocoberry trail mix pouch 200 g',
+    'farmley energy trail mix pouch 200 g',
+    'farmley fitness trail mix pouch 200 g',
+    'farmley immunity trail mix pouch 200 g',
+    'farmley nutri mix trail mix pouch 200 g',
+    'farmley power trail mix pouch 200 g',
+  ].map(s => s.toLowerCase()));
+
+  /* ── CONDITION 7: Yesterday Remark map ───────────────────────────────── */
+  const yesterMap = {};
+  let maxYestNumericRemark = 0;
+  if (yesterday.length > 0) {
+    const ys = yesterday[0];
+    const yCC = fc(ys, 'CC', 'cc', 'DF:CC');
+    const yRemark = fc(ys, 'Remark', 'Remarks', 'remark', 'remarks', 'Previous day plan (remarks)', 'Previous day plan', 'Previous Day Plan (Remarks)');
+    const ySoNo = fc(ys, 'Sales_Order_No', 'Sales Order No', 'sales_order_no', 'sales order no', 'S0- No.');
+    const yItemCode = fc(ys, 'Item_Code', 'Item Code', 'item_code', 'item code');
+
+    yesterday.forEach(r => {
+      // Find remark value using any potential variation directly if fc missed it
+      let rem = r[yRemark];
+      if (rem === undefined) rem = r['Remarks'];
+      if (rem === undefined) rem = r['remarks'];
+      if (rem === undefined) rem = r['Remark'];
+      if (rem === undefined) rem = r['remark'];
+      if (rem === undefined) rem = r['Previous day plan (remarks)'];
+      if (rem === undefined) rem = '';
+
+      // 1. Map by CC column if valid (ignore Excel formula errors like #N/A)
+      let ccVal = String(r[yCC] || r['DF:CC'] || r['CC'] || r['cc'] || '').trim();
+      if (ccVal && !ccVal.startsWith('#') && ccVal.toLowerCase() !== 'na' && ccVal.toLowerCase() !== 'n/a') {
+        yesterMap[nor(ccVal)] = rem;
+      }
+
+      // 2. Map simultaneously by concatenating Sales_Order_No + Item_Code as absolute safety fallback
+      const so = String(r[ySoNo] || r['Sales_Order_No'] || '').trim();
+      const ic = String(r[yItemCode] || r['Item_Code'] || '').trim();
+      if (so && ic) {
+        yesterMap[nor(so + ic)] = rem;
+      }
+
+      // 3. Map under Sales_Order_No alone to guarantee match if itemCode formatting varies
+      if (so) {
+        yesterMap[nor(so)] = rem;
+      }
+
+      const s = toSerial(rem);
+      if (s && s > maxYestNumericRemark) maxYestNumericRemark = s;
+    });
+  }
+  log(`Yesterday remarks: ${Object.keys(yesterMap).length} CC entries`,'ok');
+
+  const todaySerial = maxYestNumericRemark > 0
+    ? maxYestNumericRemark + 1
+    : Math.round((new Date() - new Date('1899-12-30T00:00:00Z')) / 86400000);
+  log(`Today date serial: ${todaySerial} = ${serialToDateStr(todaySerial)}`,'info');
+
+  /* ── Detect Dump column names ────────────────────────────────────────── */
+  const ds = dump[0] || {};
+  const COL = {
+    SalesOrderNo: fc(ds,'Sales_Order_No','Sales Order No'),
+    ItemCode:     fc(ds,'Item_Code','Item Code'),
+    Origin:       fc(ds,'Origin'),
+    ShipState:    fc(ds,'Shipping State','Shipping_State'),
+    PendingKgs:   fc(ds,'Pending Kgs','Pending_Kgs','PendingKgs'),
+    RetQty:       fc(ds,'returned_qty','Returned Qty','returned qty'),
+    CustGroup:    fc(ds,'customer_group','Customer Group'),
+    ClientType:   fc(ds,'client_type','Client Type'),
+    PoNo:         fc(ds,'Po_No','po_no','PO No','PO-No'),
+    PoExpiry:     fc(ds,'po_expiry_date','PO Expiry','po expiry date'),
+    SoDate:       fc(ds,'Sales_Order_Date','Sales Order Date'),
+    Branch:       fc(ds,'Branch'),
+    PendQty:      fc(ds,'Pending Qty','Pending_Qty'),
+    FinalDisp:    fc(ds,'Final Dispatch Status','Final_Dispatch_Status'),
+    IndoreStatus: fc(ds,'Origin_Indore_Status'),
+    PurneaStatus: fc(ds,'Origin_Purnea_Status'),
+    UDStatus:     fc(ds,'Origin_UD_Foods_Status'),
+    DispStatus:   fc(ds,'Dispatch_Status','Dispatch Status'),
+    ItemName:     fc(ds,'Item_Name','Item Name','Item_name','item_name'),
+    OriginKgs:    fc(ds,'Origin Kgs','Origin_Kgs','OriginKgs'),
+    Customer:     fc(ds,'Customer'),
+  };
+
+  const FK_TYPES = new Set(['fk-grocery-vs48860','fk-hyperlocal-vs46867','fk-alpha-vs46867']);
+  const CAT_GROUP = new Set(['category a','modern trade']);
+
+  /* (No longer need today's serial derived from yesterday's remarks since we just do a direct match) */
+
+  /* ── PROCESS ROWS ─────────────────────────────────────────────────────── */
+  log('Applying conditions and building output...','info');
+  let kept=0, skipped=0;
+  const result = [];
+  
+  // Note: All previous conditions (1 through 21) are intact and have NOT been modified.
+
+  dump.forEach(row => {
+    /* CONDITION 1: Pending Kgs > 0 */
+    const pendKgs = parseFloat(row[COL.PendingKgs]) || 0;
+    if (pendKgs <= 0) { skipped++; return; }
+
+    /* CONDITION 2: returned_qty = 0 */
+    const retQty = parseFloat(row[COL.RetQty]) || 0;
+    if (retQty > 0) { skipped++; return; }
+
+    /* CONDITION 3: Final Dispatch Status, Dispatch_Status derived from Origin Statuses */
+    // If any contains Partial Dispatch -> Partial Dispatch. Else if Pending -> Pending.
+    const iStatus = String(row[COL.IndoreStatus]||'').trim();
+    const pStatus = String(row[COL.PurneaStatus]||'').trim();
+    const uStatus = String(row[COL.UDStatus]||'').trim();
+    const allStatuses = [iStatus, pStatus, uStatus].filter(s=>s!=='');
+
+    // The Final Dispatch Status is what's stored in the FinalDisp column (already computed in dump)
+    let finalDisp = String(row[COL.FinalDisp]||'').trim();
+    let dispStatus = String(row[COL.DispStatus]||'').trim();
+    
+    const hasPartial = allStatuses.some(s => s.toLowerCase().includes('partial dispatch'));
+    const hasPending = allStatuses.some(s => s.toLowerCase().includes('pending'));
+
+    if (hasPartial) {
+      finalDisp = 'Partial Dispatch';
+      dispStatus = 'Partial Dispatch';
+    } else if (hasPending) {
+      finalDisp = 'Pending';
+      dispStatus = 'Pending';
+    }
+
+    if (!['Partial Dispatch','Pending'].includes(finalDisp)) { skipped++; return; }
+
+    kept++;
+
+    const soNo      = String(row[COL.SalesOrderNo]||'');
+    const itemCode  = String(row[COL.ItemCode]||'');
+    const cc        = soNo + itemCode;                    // CONDITION 4
+    let   origin    = String(row[COL.Origin]||'');
+    const shipState = String(row[COL.ShipState]||'');
+    const custGroup = String(row[COL.CustGroup]||'');
+    const itemName  = String(row[COL.ItemName]||'');
+    const customerVal = String(row[COL.Customer]||'');
+    const originKgs = parseFloat(row[COL.OriginKgs]) || 0;
+    const clientType= String(row[COL.ClientType]||'');
+    const isFK  = FK_TYPES.has(nor(clientType));
+    const isNow = nor(clientType)==='now';
+    const isCat = CAT_GROUP.has(nor(custGroup)); // Category A or Modern Trade
+
+    /* ── CFA (Gurgaon) Origin Override (conditions 19-20) ──────────── */
+    if (files.cfaGurgaon) {
+      const cfaCustOk  = CFA_CUSTOMER_GROUPS.has(nor(custGroup));
+      const cfaItemOk  = CFA_ITEM_LIST.has(nor(itemName));
+      const cfaStockOk = (cfaStockMap[nor(itemName)] || 0) > 0;
+      const cfaStateOk = CFA_SHIPPING_STATES.has(nor(shipState));
+      if (cfaCustOk && cfaItemOk && cfaStockOk && cfaStateOk) {
+        origin = 'CFA (Gurgaon)';
+      }
+    }
+
+    /* CONDITION 5: Day from Lead Time */
+    const day = ltMap[nor(origin)+'||'+nor(shipState)] || 0;
+
+    /* CONDITION 6: Appt */
+    let apptSerial = null;
+    if (isFK) {
+      apptSerial = apptMap[nor(row[COL.PoNo]||'')] || null;
+    } else if (isNow) {
+      const sod = toSerial(row[COL.SoDate]);
+      apptSerial = sod ? sod + 7 : null;
+    }
+
+    const poExpirySerial = toSerial(row[COL.PoExpiry]);
+    const soDateSerial   = toSerial(row[COL.SoDate]);
+
+    /* ── REMARK ─────────────────────────────────────────────────────────────
+       Direct lookup on CC column from Dump matching CC in Dispatch Plan_yesterday.
+       Fetches the Remark column exactly as-is. All previous sub-conditions cancelled.
+    ─────────────────────────────────────────────────────────────────────── */
+    // Search aggressively across all possible representations to guarantee a hit
+    const ysRemark = yesterMap[nor(cc)]
+      ?? yesterMap[nor(row['DF:CC'])]
+      ?? yesterMap[nor(row['CC'])]
+      ?? yesterMap[nor(soNo)];
+
+    /* ── CONDITION 21: Remark → "closed" override ──────────────────── */
+    const custGroupNor21 = nor(custGroup);
+    const isRemarkClosed = pendKgs < originKgs
+      && pendKgs > 0
+      && (custGroupNor21 === 'modern trade' || custGroupNor21 === 'quick commerce')
+      && nor(customerVal) === 'avenue e-commerce ltd';
+
+    let remarkRaw;
+    if (isRemarkClosed) {
+      remarkRaw = 'closed';
+    } else {
+      remarkRaw = (ysRemark !== undefined) ? ysRemark : '';
+    }
+
+    // Default to yesterday's date serial if still blank to ensure dates remain exactly as-is
+    if (remarkRaw === '' || remarkRaw === null || remarkRaw === undefined || String(remarkRaw).trim() === '') {
+      remarkRaw = maxYestNumericRemark > 0 ? maxYestNumericRemark : todaySerial;
+    }
+
+    /* CONDITION 10: If Dispatched, then EDD = Remark + Day */
+    const remarkSerial = toSerial(remarkRaw);
+    let dispEDDSerial = null;
+    if (remarkSerial !== null && day >= 0) {
+      dispEDDSerial = remarkSerial + day;
+    }
+
+    /* CONDITION 12 + 13: EDD (integer — difference of two date serials) */
+    let edd = '';
+    if (dispEDDSerial !== null) {
+      if (isFK && apptSerial !== null)  edd = Math.round(dispEDDSerial - apptSerial);
+      else if (poExpirySerial !== null) edd = Math.round(dispEDDSerial - poExpirySerial);
+      else                              edd = Math.round(dispEDDSerial);
+    }
+
+    /* CONDITION 15: Priority */
+    let priority = '';
+    if (typeof edd === 'number') {
+      if (edd < 0)              priority = 'P2';
+      else if (edd===0||edd===1) priority = 'P1';
+    }
+
+    /* CONDITION 16: Red highlight */
+    const isRed = typeof edd==='number' && edd > 1;
+
+    /* CONDITION 17: Merge */
+    const merge = soNo + String(row[COL.Branch]||'');
+
+    const fmtD = s => s ? serialToDateStr(s) : '';
+    const fmtRemark = () => {
+      if (remarkRaw==='') return '';
+      if (remarkSerial!==null) return fmtD(remarkSerial);
+      return typeof remarkRaw==='string' ? remarkRaw : '';
+    };
+
+    result.push({
+      /* ─ internal raw values for export ─ */
+      _red: isRed,
+      _remarkSerial: remarkSerial,
+      _remarkRaw: remarkRaw,
+      _dispEDDSerial: dispEDDSerial,
+      _apptSerial: apptSerial,
+      _poExpirySerial: poExpirySerial,
+      _soDateSerial: soDateSerial,
+      /* ─ output columns (all display-formatted) ─ */
+      CC: cc,
+      Sales_Order_No: soNo,
+      'SO Check': row['SO Check']||'',
+      Picklist: row['Picklist']||'',
+      Sales_Order_Date: soDateSerial ? fmtD(soDateSerial) : String(row[COL.SoDate]||''),
+      Po_No: row[COL.PoNo]||'',
+      po_expiry_date: poExpirySerial ? fmtD(poExpirySerial) : String(row[COL.PoExpiry]||''),
+      customer_group: custGroup,
+      Appt: apptSerial ? fmtD(apptSerial) : '',
+      Remark: fmtRemark(),
+      Rea: row['Rea']||'',
+      Priority: priority,
+      'Final Dispatch Status': finalDisp,
+      'If Dispatched, then EDD': dispEDDSerial ? fmtD(dispEDDSerial) : '',
+      EDD: (typeof edd==='number') ? edd : '',
+      'Origin Kgs': row[COL.OriginKgs]||pendKgs,
+      client_type: clientType,
+      Customer: customerVal,
+      Item_Name: itemName,
+      'Pending Qty': row[COL.PendQty]||'',
+      'Pending Kgs': pendKgs,
+      Boxes: row['Boxes']||'',
+      TPT: row['TPT']||'',
+      Origin: origin,  /* may be overridden to CFA (Gurgaon) */
+      Shipping_Address_Name: row['Shipping_Address_Name']||'',
+      item_parent: row['item_parent']||'',
+      'Case Size': row['Case Size']||'',
+      'Shipping State': shipState,
+      Day: day||'',
+      Item_Group: row['Item_Group']||'',
+      Item_Code: itemCode,
+      Item_Type: row['Item_Type']||'',
+      conversion_factor: row['conversion_factor']||'',
+      Stock_qty: row['Stock_qty']||'',
+      Qty: row['Qty']||'',
+      'Selling Rate': row['Selling Rate']||'',
+      MRP: row['MRP']||'',
+      'TAX Rate': row['TAX Rate']||row['TAX_Rate']||'',
+      'Selling Rate Per Kg': row['Selling Rate Per Kg']||'',
+      Amount: row['Amount']||'',
+      'Tax Amount': row['Tax Amount']||'',
+      'Final Amount': row['Final Amount']||'',
+      Delivered_Qty: (row['Delivered_Qty'] === undefined || row['Delivered_Qty'] === null || String(row['Delivered_Qty']).trim() === '') ? 0 : row['Delivered_Qty'],
+      returned_qty: retQty,
+      'Shipping Address Details': row['Shipping Address Details']||'',
+      'Shipping Pincode': row['Shipping Pincode']||'',
+      'Billing Address Details': row['Billing Address Details']||'',
+      'Complete Shipping Address': row['Complete Shipping Address']||'',
+      'New MIS ITEM Group': row['New MIS ITEM Group']||'',
+      Branch: row[COL.Branch]||'',
+      Dispatch_Status: dispStatus,
+      Origin_Indore_Status: iStatus,
+      Origin_Purnea_Status: pStatus,
+      Origin_UD_Foods_Status: uStatus,
+      'DATE(tso.sales_order_confirmation_date)': row['DATE(tso.sales_order_confirmation_date)']||'',
+      owner: row['owner']||'',
+      Workflow_State: row['Workflow_State']||'',
+      purpose: row['purpose']||'',
+      Sales_Order_Status: row['Sales_Order_Status']||'',
+      Delivery_Date: row['Delivery_Date']||'',
+      'Multi GRN': row['Multi GRN']||'',
+      Merge: merge,
+      'CFA Check': row['CFA Check']||'',
+      'Is CFA': row['Is CFA']||'',
+    });
+  });
+
+  outputRows = result;
+  const cfaGurgaonCount = result.filter(r => r.Origin === 'CFA (Gurgaon)').length;
+  log(`Rows kept: ${kept} | Rows skipped: ${skipped} | CFA Gurgaon: ${cfaGurgaonCount}`,'ok');
+
+  renderTable(result);
+  const redCount = result.filter(r=>r._red).length;
+  const p1 = result.filter(r=>r.Priority==='P1').length;
+  const p2 = result.filter(r=>r.Priority==='P2').length;
+  document.getElementById('previewMeta').textContent =
+    `${result.length} rows · ${redCount} red · P1: ${p1} · P2: ${p2} · ${new Date().toLocaleString()}`;
+  document.getElementById('preview').classList.add('visible');
+  document.getElementById('exportBtn').style.display='inline-block';
+  log(`✓ Done — ${result.length} rows generated`,'ok');
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RENDER TABLE (preview columns only)
+═══════════════════════════════════════════════════════════════════════════ */
+const PREVIEW_COLS = [
+  'CC','Sales_Order_No','Sales_Order_Date','Po_No','po_expiry_date',
+  'customer_group','client_type','Appt','Remark','Priority',
+  'Final Dispatch Status','Dispatch_Status','If Dispatched, then EDD','EDD',
+  'Pending Kgs','Origin','Shipping State','Day','Customer','Item_Code','Branch'
+];
+
+function renderTable(rows) {
+  const table = document.getElementById('outputTable');
+  let html = '<thead><tr>'+PREVIEW_COLS.map(h=>`<th>${h}</th>`).join('')+'</tr></thead><tbody>';
+  rows.forEach(row => {
+    html += `<tr class="${row._red?'red-row':''}">`;
+    PREVIEW_COLS.forEach(h => {
+      let val = row[h]??''; let cell = String(val);
+      if (h==='Final Dispatch Status' || h==='Dispatch_Status') {
+        cell = val==='Partial Dispatch' ? `<span class="tag tag-partial">Partial</span>`
+             : val==='Pending' ? `<span class="tag tag-pending">Pending</span>` : val;
+      } else if (h==='Priority') {
+        if (val==='P1') cell=`<span class="tag tag-p1">P1</span>`;
+        else if (val==='P2') cell=`<span class="tag tag-p2">P2</span>`;
+      }
+      html += `<td title="${String(row[h]??'').replace(/"/g,'&quot;')}">${cell}</td>`;
+    });
+    html += '</tr>';
+  });
+  table.innerHTML = html+'</tbody>';
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   EXPORT TO EXCEL
+═══════════════════════════════════════════════════════════════════════════ */
+const EXPORT_COLS = [
+  'CC','Sales_Order_No','SO Check','Picklist','Sales_Order_Date','Po_No','po_expiry_date',
+  'customer_group','Appt','Remark','Rea','Priority','Final Dispatch Status',
+  'If Dispatched, then EDD','EDD','Origin Kgs','client_type','Customer','Item_Name',
+  'Pending Qty','Pending Kgs','Boxes','TPT','Origin','Shipping_Address_Name','item_parent',
+  'Case Size','Shipping State','Day','Item_Group','Item_Code','Item_Type','conversion_factor',
+  'Stock_qty','Qty','Selling Rate','MRP','TAX Rate','Selling Rate Per Kg','Amount',
+  'Tax Amount','Final Amount','Delivered_Qty','returned_qty','Shipping Address Details',
+  'Shipping Pincode','Billing Address Details','Complete Shipping Address',
+  'New MIS ITEM Group','Branch','Dispatch_Status','Origin_Indore_Status',
+  'Origin_Purnea_Status','Origin_UD_Foods_Status','DATE(tso.sales_order_confirmation_date)',
+  'owner','Workflow_State','purpose','Sales_Order_Status','Delivery_Date','Multi GRN',
+  'Merge','CFA Check','Is CFA'
+];
+
+const DATE_COLS = new Set(['Sales_Order_Date','po_expiry_date','Appt','Remark','If Dispatched, then EDD','Delivery_Date','DATE(tso.sales_order_confirmation_date)']);
+const NUMERIC_COLS = new Set([
+  'Origin Kgs','Pending Qty','Pending Kgs','Boxes','Day',
+  'conversion_factor','Stock_qty','Qty','Selling Rate','MRP','TAX Rate',
+  'Selling Rate Per Kg','Amount','Tax Amount','Final Amount',
+  'Delivered_Qty','returned_qty','Shipping Pincode','Case Size'
+]);
+
+function exportToExcel() {
+  if (!outputRows.length) return;
+
+  /* ── Column index map (0-based) for formula references ─────────────── */
+  const colIdx = {};
+  EXPORT_COLS.forEach((h, i) => { colIdx[h] = i; });
+  const colLetter = idx => {
+    let s = '';
+    idx++;
+    while (idx > 0) { idx--; s = String.fromCharCode(65 + (idx % 26)) + s; idx = Math.floor(idx / 26); }
+    return s;
+  };
+  const C = name => colLetter(colIdx[name]);
+
+  /* ── Build reference sheets ────────────────────────────────────────── */
+  // LEAD TIME sheet: Origin | Shipping State | Day | Lookup_Key (helper)
+  const ltExport = refData.leadtime.map(r => {
+    const orig = String(r.Origin||r.origin||'').trim();
+    const state = String(r['Shipping State']||r.Shipping_State||r['shipping state']||'').trim();
+    const day = parseInt(r.Day||r.day)||0;
+    return { Origin: orig, 'Shipping State': state, Day: day, Lookup_Key: orig.toLowerCase()+'||'+state.toLowerCase() };
+  });
+  const wsLT = XLSX.utils.json_to_sheet(ltExport, {header:['Origin','Shipping State','Day','Lookup_Key']});
+
+  // Appointments sheet: PO_No | Appt_Date
+  const apptExport = [];
+  if (refData.appointments.length > 0) {
+    const s0 = refData.appointments[0];
+    const poKey = Object.keys(s0).find(k => /po.?no/i.test(String(k))) || 'Po_No';
+    const dtKey = Object.keys(s0).find(k => /appt.?date/i.test(String(k))) || 'Appt date';
+    refData.appointments.forEach(r => {
+      const po = String(r[poKey]||r['Po_No']||r['S0- No.']||r['New SO-14']||'').trim();
+      const dt = toSerial(r[dtKey]);
+      if (po && dt) apptExport.push({ PO_No: po, Appt_Date: dt });
+    });
+  }
+  const wsAppt = XLSX.utils.json_to_sheet(apptExport, {header:['PO_No','Appt_Date']});
+  // Format Appt_Date as date
+  if (apptExport.length > 0) {
+    for (let R=1; R<=apptExport.length; R++) {
+      const addr = XLSX.utils.encode_cell({r:R, c:1});
+      if (wsAppt[addr] && typeof wsAppt[addr].v==='number') { wsAppt[addr].z='YYYY-MM-DD'; }
+    }
+  }
+
+  // Yesterday sheet: CC | Remark
+  const yestExport = [];
+  if (refData.yesterday.length > 0) {
+    const ys = refData.yesterday[0];
+    const yCC = fc(ys, 'CC', 'cc', 'DF:CC');
+    const yRemark = fc(ys, 'Remark', 'Remarks', 'remark', 'remarks');
+    const ySoNo = fc(ys, 'Sales_Order_No', 'Sales Order No', 'sales_order_no');
+    const yItemCode = fc(ys, 'Item_Code', 'Item Code', 'item_code');
+    refData.yesterday.forEach(r => {
+      let ccVal = String(r[yCC]||r['DF:CC']||r['CC']||r['cc']||'').trim();
+      let rem = r[yRemark]; if(rem===undefined) rem=r['Remarks']||r['Remark']||r['remark']||'';
+      // Also build CC from SO+ItemCode if CC is missing
+      if (!ccVal || ccVal.startsWith('#')) {
+        const so = String(r[ySoNo]||r['Sales_Order_No']||'').trim();
+        const ic = String(r[yItemCode]||r['Item_Code']||'').trim();
+        ccVal = so+ic;
+      }
+      if (ccVal) {
+        const remarkSerial = toSerial(rem);
+        yestExport.push({ CC: ccVal.toLowerCase(), Remark: remarkSerial!==null ? remarkSerial : (rem||'') });
+      }
+    });
+  }
+  const wsYest = XLSX.utils.json_to_sheet(yestExport, {header:['CC','Remark']});
+
+  /* ── Build main sheet with formulas ────────────────────────────────── */
+  // First row: write raw values for non-formula columns, placeholders for formula columns
+  const FORMULA_COLS = new Set(['CC','Day','Appt','Remark','If Dispatched, then EDD','EDD','Priority','Merge','Dispatch_Status','Final Dispatch Status']);
+
+  const exportData = outputRows.map(row => {
+    const obj = {};
+    EXPORT_COLS.forEach(h => {
+      if (FORMULA_COLS.has(h)) {
+        obj[h] = ''; // placeholder — will be overwritten with formula
+      } else if (h==='Sales_Order_Date')  obj[h] = row._soDateSerial || '';
+      else if (h==='po_expiry_date')      obj[h] = row._poExpirySerial || '';
+      else if (h==='Delivery_Date' || h==='DATE(tso.sales_order_confirmation_date)') {
+        const serial = toSerial(row[h]); obj[h] = serial!==null ? serial : (row[h]||'');
+      } else if (NUMERIC_COLS.has(h)) {
+        const val = row[h];
+        if (val===''||val===null||val===undefined) obj[h]='';
+        else if (typeof val==='number') obj[h]=val;
+        else { const n=parseFloat(val); obj[h]=(!isNaN(n)?n:val); }
+      } else obj[h] = row[h] ?? '';
+    });
+    return obj;
+  });
+
+  const ws = XLSX.utils.json_to_sheet(exportData, {header: EXPORT_COLS});
+
+  /* ── Inject Excel formulas into computed columns ───────────────────── */
+  const totalRows = outputRows.length;
+  const ltRows = ltExport.length;
+  const apptRows = apptExport.length;
+  const yestRows = yestExport.length;
+
+  for (let i = 0; i < totalRows; i++) {
+    const r = i + 2; // Excel row (1-indexed, row 1 = header)
+
+    // CC = Sales_Order_No & Item_Code (Condition 4)
+    const ccAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['CC']});
+    ws[ccAddr] = { t:'s', f:`${C('Sales_Order_No')}${r}&${C('Item_Code')}${r}` };
+
+    // Day = INDEX-MATCH from LEAD TIME using LOWER(Origin)||LOWER(Shipping State) (Condition 5)
+    const dayAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Day']});
+    ws[dayAddr] = { t:'n', f:`IFERROR(INDEX('LEAD TIME'!C$2:C$${ltRows+1},MATCH(LOWER(${C('Origin')}${r})&"||"&LOWER(${C('Shipping State')}${r}),'LEAD TIME'!D$2:D$${ltRows+1},0)),0)` };
+
+    // Appt (Condition 6): FK types → VLOOKUP on Po_No; "Now" → Sales_Order_Date+7
+    const apptAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Appt']});
+    ws[apptAddr] = { t:'n', f:`IF(OR(${C('client_type')}${r}="FK-Grocery-VS48860",${C('client_type')}${r}="FK-Hyperlocal-VS46867",${C('client_type')}${r}="FK-Alpha-VS46867"),IFERROR(VLOOKUP(${C('Po_No')}${r},Appointments!A$2:B$${apptRows+1},2,FALSE),""),IF(LOWER(${C('client_type')}${r})="now",IF(ISNUMBER(${C('Sales_Order_Date')}${r}),${C('Sales_Order_Date')}${r}+7,""),""))`, z:'YYYY-MM-DD' };
+
+    // Remark (Condition 7): VLOOKUP from Yesterday on CC match
+    // Condition 21 override: closed if PendKgs < OriginKgs AND >0 AND (Modern Trade/Quick Commerce) AND Avenue E-Commerce
+    const remAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Remark']});
+    ws[remAddr] = { t:'s', f:`IF(AND(${C('Pending Kgs')}${r}<${C('Origin Kgs')}${r},${C('Pending Kgs')}${r}>0,OR(LOWER(${C('customer_group')}${r})="modern trade",LOWER(${C('customer_group')}${r})="quick commerce"),LOWER(${C('Customer')}${r})="avenue e-commerce ltd"),"closed",IFERROR(VLOOKUP(LOWER(${C('CC')}${r}),Yesterday!A$2:B$${yestRows+1},2,FALSE),""))` };
+
+    // If Dispatched, then EDD = Remark + Day (Condition 10)
+    const eddDispAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['If Dispatched, then EDD']});
+    ws[eddDispAddr] = { t:'n', f:`IF(ISNUMBER(${C('Remark')}${r}),${C('Remark')}${r}+${C('Day')}${r},"")`, z:'YYYY-MM-DD' };
+
+    // EDD (Conditions 12-14): FK → IfDispEDD-Appt; Others → IfDispEDD-po_expiry; fallback → IfDispEDD
+    const eddAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['EDD']});
+    ws[eddAddr] = { t:'n', f:`IF(ISNUMBER(${C('If Dispatched, then EDD')}${r}),IF(OR(${C('client_type')}${r}="FK-Grocery-VS48860",${C('client_type')}${r}="FK-Hyperlocal-VS46867",${C('client_type')}${r}="FK-Alpha-VS46867"),IF(ISNUMBER(${C('Appt')}${r}),${C('If Dispatched, then EDD')}${r}-${C('Appt')}${r},${C('If Dispatched, then EDD')}${r}),IF(ISNUMBER(${C('po_expiry_date')}${r}),${C('If Dispatched, then EDD')}${r}-${C('po_expiry_date')}${r},${C('If Dispatched, then EDD')}${r})),"")`, z:'0' };
+
+    // Priority (Condition 15): P2 if EDD<0, P1 if EDD=0 or 1
+    const prAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Priority']});
+    ws[prAddr] = { t:'s', f:`IF(NOT(ISNUMBER(${C('EDD')}${r})),"",IF(${C('EDD')}${r}<0,"P2",IF(OR(${C('EDD')}${r}=0,${C('EDD')}${r}=1),"P1","")))` };
+
+    // Final Dispatch Status (Condition 3/18)
+    const fdAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Final Dispatch Status']});
+    ws[fdAddr] = { t:'s', f:`IF(OR(ISNUMBER(SEARCH("Partial Dispatch",${C('Origin_Indore_Status')}${r})),ISNUMBER(SEARCH("Partial Dispatch",${C('Origin_Purnea_Status')}${r})),ISNUMBER(SEARCH("Partial Dispatch",${C('Origin_UD_Foods_Status')}${r}))),"Partial Dispatch",IF(OR(ISNUMBER(SEARCH("Pending",${C('Origin_Indore_Status')}${r})),ISNUMBER(SEARCH("Pending",${C('Origin_Purnea_Status')}${r})),ISNUMBER(SEARCH("Pending",${C('Origin_UD_Foods_Status')}${r}))),"Pending",""))` };
+
+    // Dispatch_Status (same logic as Final Dispatch Status)
+    const dsAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Dispatch_Status']});
+    ws[dsAddr] = { t:'s', f:`IF(OR(ISNUMBER(SEARCH("Partial Dispatch",${C('Origin_Indore_Status')}${r})),ISNUMBER(SEARCH("Partial Dispatch",${C('Origin_Purnea_Status')}${r})),ISNUMBER(SEARCH("Partial Dispatch",${C('Origin_UD_Foods_Status')}${r}))),"Partial Dispatch",IF(OR(ISNUMBER(SEARCH("Pending",${C('Origin_Indore_Status')}${r})),ISNUMBER(SEARCH("Pending",${C('Origin_Purnea_Status')}${r})),ISNUMBER(SEARCH("Pending",${C('Origin_UD_Foods_Status')}${r}))),"Pending",""))` };
+
+    // Merge = Sales_Order_No & Branch (Condition 17)
+    const mgAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Merge']});
+    ws[mgAddr] = { t:'s', f:`${C('Sales_Order_No')}${r}&${C('Branch')}${r}` };
+  }
+
+  /* ── Apply number formats to date and numeric columns ──────────────── */
+  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+  for (let R = range.s.r+1; R <= range.e.r; R++) {
+    EXPORT_COLS.forEach((h, ci) => {
+      const addr = XLSX.utils.encode_cell({r:R, c:ci});
+      if (!ws[addr]) return;
+      if (FORMULA_COLS.has(h)) return; // already handled
+      if (DATE_COLS.has(h) && typeof ws[addr].v === 'number') {
+        ws[addr].t = 'n'; ws[addr].z = 'YYYY-MM-DD';
+      } else if (NUMERIC_COLS.has(h) && typeof ws[addr].v === 'number') {
+        ws[addr].t = 'n';
+      }
+    });
+  }
+
+  // Set column widths
+  ws['!cols'] = EXPORT_COLS.map(h => ({wch: Math.min(Math.max(h.length+2, 10), 30)}));
+
+  /* ── Assemble workbook with all sheets ─────────────────────────────── */
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Dispatch plan_Today');
+  XLSX.utils.book_append_sheet(wb, wsLT, 'LEAD TIME');
+  XLSX.utils.book_append_sheet(wb, wsAppt, 'Appointments');
+  XLSX.utils.book_append_sheet(wb, wsYest, 'Yesterday');
+  XLSX.writeFile(wb, 'Dispatch_Plan_Today_'+new Date().toISOString().slice(0,10)+'.xlsx');
+  log('✓ Excel exported with formulas + reference sheets (LEAD TIME, Appointments, Yesterday)','ok');
+}
+
+
+</script>
+</body>
+</html>
