@@ -527,7 +527,6 @@ async function run() {
     ItemName:     fc(ds,'Item_Name','Item Name','Item_name','item_name'),
     OriginKgs:    fc(ds,'Origin Kgs','Origin_Kgs','OriginKgs'),
     Customer:     fc(ds,'Customer'),
-    DeliveryDate: fc(ds,'Delivery_Date','Delivery Date'),
   };
 
   const FK_TYPES = new Set(['fk-grocery-vs48860','fk-hyperlocal-vs46867','fk-alpha-vs46867']);
@@ -614,8 +613,7 @@ async function run() {
       apptSerial = sod ? sod + 7 : null;
     }
 
-    const isAirlines = nor(custGroup) === 'airlines';
-    const poExpirySerial = isAirlines ? toSerial(row[COL.DeliveryDate] || row['Delivery_Date']) : toSerial(row[COL.PoExpiry]);
+    const poExpirySerial = toSerial(row[COL.PoExpiry]);
     const soDateSerial   = toSerial(row[COL.SoDate]);
 
     /* ── REMARK ─────────────────────────────────────────────────────────────
@@ -690,8 +688,6 @@ async function run() {
       _dispEDDSerial: dispEDDSerial,
       _apptSerial: apptSerial,
       _poExpirySerial: poExpirySerial,
-      _poExpirySerialRaw: toSerial(row[COL.PoExpiry]),
-      _deliveryDateSerial: toSerial(row[COL.DeliveryDate] || row['Delivery_Date']),
       _soDateSerial: soDateSerial,
       /* ─ output columns (all display-formatted) ─ */
       CC: cc,
@@ -758,7 +754,6 @@ async function run() {
       Merge: merge,
       'CFA Check': row['CFA Check']||'',
       'Is CFA': row['Is CFA']||'',
-      '_Raw_PO_Expiry': toSerial(row[COL.PoExpiry]) || '',
     });
   });
 
@@ -823,10 +818,10 @@ const EXPORT_COLS = [
   'New MIS ITEM Group','Branch','Dispatch_Status','Origin_Indore_Status',
   'Origin_Purnea_Status','Origin_UD_Foods_Status','DATE(tso.sales_order_confirmation_date)',
   'owner','Workflow_State','purpose','Sales_Order_Status','Delivery_Date','Multi GRN',
-  'Merge','CFA Check','Is CFA','_Raw_PO_Expiry'
+  'Merge','CFA Check','Is CFA'
 ];
 
-const DATE_COLS = new Set(['Sales_Order_Date','po_expiry_date','Appt','Remark','If Dispatched, then EDD','Delivery_Date','DATE(tso.sales_order_confirmation_date)','_Raw_PO_Expiry']);
+const DATE_COLS = new Set(['Sales_Order_Date','po_expiry_date','Appt','Remark','If Dispatched, then EDD','Delivery_Date','DATE(tso.sales_order_confirmation_date)']);
 const NUMERIC_COLS = new Set([
   'Origin Kgs','Pending Qty','Pending Kgs','Boxes','Day',
   'conversion_factor','Stock_qty','Qty','Selling Rate','MRP','TAX Rate',
@@ -906,7 +901,7 @@ function exportToExcel() {
 
   /* ── Build main sheet with formulas ────────────────────────────────── */
   // First row: write raw values for non-formula columns, placeholders for formula columns
-  const FORMULA_COLS = new Set(['CC','po_expiry_date','Day','Appt','Remark','If Dispatched, then EDD','EDD','Priority','Merge','Dispatch_Status','Final Dispatch Status']);
+  const FORMULA_COLS = new Set(['CC','Day','Appt','Remark','If Dispatched, then EDD','EDD','Priority','Merge','Dispatch_Status','Final Dispatch Status']);
 
   const exportData = outputRows.map(row => {
     const obj = {};
@@ -914,9 +909,8 @@ function exportToExcel() {
       if (FORMULA_COLS.has(h)) {
         obj[h] = ''; // placeholder — will be overwritten with formula
       } else if (h==='Sales_Order_Date')  obj[h] = row._soDateSerial || '';
-      else if (h==='Delivery_Date') {
-        obj[h] = row._deliveryDateSerial || '';
-      } else if (h==='DATE(tso.sales_order_confirmation_date)') {
+      else if (h==='po_expiry_date')      obj[h] = row._poExpirySerial || '';
+      else if (h==='Delivery_Date' || h==='DATE(tso.sales_order_confirmation_date)') {
         const serial = toSerial(row[h]); obj[h] = serial!==null ? serial : (row[h]||'');
       } else if (NUMERIC_COLS.has(h)) {
         const val = row[h];
@@ -942,10 +936,6 @@ function exportToExcel() {
     // CC = Sales_Order_No & Item_Code (Condition 4)
     const ccAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['CC']});
     ws[ccAddr] = { t:'s', f:`${C('Sales_Order_No')}${r}&${C('Item_Code')}${r}` };
-
-    // po_expiry_date: If Airlines → Delivery_Date, else raw po_expiry_date
-    const poAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['po_expiry_date']});
-    ws[poAddr] = { t:'n', f:`IF(LOWER(${C('customer_group')}${r})="airlines",${C('Delivery_Date')}${r},${C('_Raw_PO_Expiry')}${r})`, z:'YYYY-MM-DD' };
 
     // Day = INDEX-MATCH from LEAD TIME using LOWER(Origin)||LOWER(Shipping State) (Condition 5)
     const dayAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Day']});
