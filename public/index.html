@@ -190,7 +190,6 @@ const CONDITIONS = [
   { sno:18, col:'Dispatch_Status',          rule:'If any Origin Status contains Partial Dispatch -> Partial Dispatch. Else if Pending -> Pending. Overrides Dump value.' },
   { sno:19, col:'Origin → CFA (Gurgaon)',   rule:'Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa.' },
   { sno:20, col:'Origin → CFA (Gurgaon)',   rule:'Condition 2: Item_Name must be in the 56-item CFA Gurgaon approved SKU list. Condition 3: Storage Beyond Sqfeet value > 0 in CFA Gurgaon Stock file. Condition 4: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 4 conditions are met → Origin = "CFA (Gurgaon)".' },
-  { sno:21, col:'Remark → "closed"',        rule:'If Pending Kgs < Origin Kgs AND Pending Kgs > 0 AND customer_group is Modern Trade or Quick Commerce AND Customer is Avenue E-Commerce Ltd → Remark = "closed" (overrides VLOOKUP).' },
   { sno:22, col:'Delivered_Qty',            rule:'If Delivered_Qty is blank or missing, set it to 0.' },
 ];
 
@@ -626,19 +625,7 @@ async function run() {
       ?? yesterMap[nor(row['CC'])]
       ?? yesterMap[nor(soNo)];
 
-    /* ── CONDITION 21: Remark → "closed" override ──────────────────── */
-    const custGroupNor21 = nor(custGroup);
-    const isRemarkClosed = pendKgs < originKgs
-      && pendKgs > 0
-      && (custGroupNor21 === 'modern trade' || custGroupNor21 === 'quick commerce')
-      && nor(customerVal) === 'avenue e-commerce ltd';
-
-    let remarkRaw;
-    if (isRemarkClosed) {
-      remarkRaw = 'closed';
-    } else {
-      remarkRaw = (ysRemark !== undefined) ? ysRemark : '';
-    }
+    let remarkRaw = (ysRemark !== undefined) ? ysRemark : '';
 
     // Default to yesterday's date serial if still blank to ensure dates remain exactly as-is
     if (remarkRaw === '' || remarkRaw === null || remarkRaw === undefined || String(remarkRaw).trim() === '') {
@@ -948,7 +935,7 @@ function exportToExcel() {
     // Remark (Condition 7): VLOOKUP from Yesterday on CC match
     // Condition 21 override: closed if PendKgs < OriginKgs AND >0 AND (Modern Trade/Quick Commerce) AND Avenue E-Commerce
     const remAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Remark']});
-    ws[remAddr] = { t:'s', f:`IF(AND(${C('Pending Kgs')}${r}<${C('Origin Kgs')}${r},${C('Pending Kgs')}${r}>0,OR(LOWER(${C('customer_group')}${r})="modern trade",LOWER(${C('customer_group')}${r})="quick commerce"),LOWER(${C('Customer')}${r})="avenue e-commerce ltd"),"closed",IFERROR(VLOOKUP(LOWER(${C('CC')}${r}),Yesterday!A$2:B$${yestRows+1},2,FALSE),""))` };
+    ws[remAddr] = { t:'s', f:`IFERROR(VLOOKUP(LOWER(${C('CC')}${r}),Yesterday!A$2:B$${yestRows+1},2,FALSE),"")` };
 
     // If Dispatched, then EDD = Remark + Day (Condition 10)
     const eddDispAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['If Dispatched, then EDD']});
