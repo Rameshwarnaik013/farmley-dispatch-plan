@@ -192,6 +192,7 @@ const CONDITIONS = [
   { sno:20, col:'Origin → CFA (Gurgaon)',   rule:'Condition 2: Item_Name must be in the 56-item CFA Gurgaon approved SKU list. Condition 3: Storage Beyond Sqfeet value > 0 in CFA Gurgaon Stock file. Condition 4: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 4 conditions are met → Origin = "CFA (Gurgaon)".' },
   { sno:22, col:'Delivered_Qty',            rule:'If Delivered_Qty is blank or missing, set it to 0.' },
   { sno:23, col:'Origin → Rebela',         rule:'If item_parent is "Munchies Waves" AND Shipping State is "Tamil Nadu" → Origin = "Rebela".' },
+  { sno:24, col:'po_expiry_date',          rule:'If customer_group is "Airlines" → po_expiry_date is taken from Delivery_Date column instead of po_expiry_date.' },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -528,6 +529,7 @@ async function run() {
     OriginKgs:    fc(ds,'Origin Kgs','Origin_Kgs','OriginKgs'),
     Customer:     fc(ds,'Customer'),
     ItemParent:   fc(ds,'item_parent','Item Parent','Item_Parent'),
+    DeliveryDate: fc(ds,'Delivery_Date','Delivery Date','delivery_date'),
   };
 
   const FK_TYPES = new Set(['fk-grocery-vs48860','fk-hyperlocal-vs46867','fk-alpha-vs46867']);
@@ -619,7 +621,9 @@ async function run() {
       apptSerial = sod ? sod + 7 : null;
     }
 
-    const poExpirySerial = toSerial(row[COL.PoExpiry]);
+    /* ── CONDITION 24: Airlines → po_expiry_date = Delivery_Date ──── */
+    const isAirlines = nor(custGroup) === 'airlines';
+    const poExpirySerial = isAirlines ? (toSerial(row['Delivery_Date'] || row[COL.DeliveryDate]) || toSerial(row[COL.PoExpiry])) : toSerial(row[COL.PoExpiry]);
     const soDateSerial   = toSerial(row[COL.SoDate]);
 
     /* ── REMARK ─────────────────────────────────────────────────────────────
