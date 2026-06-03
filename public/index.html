@@ -193,6 +193,9 @@ const CONDITIONS = [
   { sno:22, col:'Delivered_Qty',            rule:'If Delivered_Qty is blank or missing, set it to 0.' },
   { sno:23, col:'Origin → Rebela',         rule:'If item_parent is "Munchies Waves" AND Shipping State is "Tamil Nadu" → Origin = "Rebela".' },
   { sno:24, col:'po_expiry_date',          rule:'If customer_group is "Airlines" → po_expiry_date is taken from Delivery_Date column instead of po_expiry_date.' },
+  { sno:25, col:'Appt (multi-date)',       rule:'When the Appointments file has multiple dates in one cell (e.g. "1-Jun-26,7-Jun-26"), the entire string is fetched as-is via lookup.' },
+  { sno:26, col:'Rea',                     rule:'Rea is looked up from Dispatch Plan_yesterday using CC column match. If found in Yesterday, use that value; otherwise keep Dump value.' },
+  { sno:27, col:'Origin → CFA Bangalore',  rule:'If customer_group is Amazon Retail India, Category A, Vending, or HoReCa AND Item_Code is Makhana_7-2992/2994/2995/2996/2997 AND Shipping State is Telangana, Andhra Pradesh, Karnataka, Tamil Nadu, or Kerala → Origin = "CFA Bangalore". No stock check required.' },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -355,23 +358,36 @@ async function run() {
   });
   log(`Lead Time map: ${Object.keys(ltMap).length} entries`,'ok');
 
-  /* ── CONDITION 6: Appointments map ──────────────────────────────────── */
+  /* ── CONDITION 6: Appointments map (supports multi-date cells) ───── */
   const apptMap = {};
   if (apptData.length > 0) {
     const s = apptData[0];
     const poKey = Object.keys(s).find(k => /po.?no/i.test(String(k))) || 'Po_No';
     const dtKey = Object.keys(s).find(k => /appt.?date/i.test(String(k))) || 'Appt date';
     apptData.forEach(r => {
-      const dt = toSerial(r[dtKey]);
-      if (!dt) return;
+      const rawVal = r[dtKey];
+      if (rawVal === null || rawVal === undefined || String(rawVal).trim() === '') return;
+      const rawStr = String(rawVal).trim();
+      // Check if cell has multiple dates (comma-separated)
+      const hasMulti = rawStr.includes(',');
+      let apptVal;
+      if (hasMulti) {
+        // Store the entire multi-date string as-is (text)
+        apptVal = rawStr;
+      } else {
+        // Single date — convert to serial
+        const dt = toSerial(rawVal);
+        if (!dt) return;
+        apptVal = dt;
+      }
       const po1 = nor(r['Po_No']);
       const po2 = nor(r['S0- No.']);
       const po3 = nor(r['New SO-14']);
       const po4 = nor(r[poKey]);
-      if (po1) apptMap[po1] = dt;
-      if (po2) apptMap[po2] = dt;
-      if (po3) apptMap[po3] = dt;
-      if (po4) apptMap[po4] = dt;
+      if (po1) apptMap[po1] = apptVal;
+      if (po2) apptMap[po2] = apptVal;
+      if (po3) apptMap[po3] = apptVal;
+      if (po4) apptMap[po4] = apptVal;
     });
   }
   log(`Appointments map: ${Object.keys(apptMap).length} PO entries`,'ok');
@@ -455,6 +471,14 @@ async function run() {
     'farmley power trail mix pouch 200 g',
   ].map(s => s.toLowerCase()));
 
+  /* ── CFA Bangalore constants (Condition 26/C) ─────────────────────── */
+  const CFA_BLR_ITEM_CODES = new Set([
+    'makhana_7-2992','makhana_7-2994','makhana_7-2995','makhana_7-2996','makhana_7-2997'
+  ]);
+  const CFA_BLR_STATES = new Set([
+    'telangana','andhra pradesh','karnataka','tamil nadu','kerala'
+  ]);
+
   /* ── CONDITION 7: Yesterday Remark map ───────────────────────────────── */
   const yesterMap = {};
   let maxYestNumericRemark = 0;
@@ -498,6 +522,28 @@ async function run() {
     });
   }
   log(`Yesterday remarks: ${Object.keys(yesterMap).length} CC entries`,'ok');
+
+  /* ── CONDITION 25(B): Yesterday Rea map (CC → Rea) ─────────────────── */
+  const yesterReaMap = {};
+  if (yesterday.length > 0) {
+    const ys = yesterday[0];
+    const yCC = fc(ys, 'CC', 'cc', 'DF:CC');
+    const yRea = fc(ys, 'Rea', 'rea', 'REA');
+    const ySoNo = fc(ys, 'Sales_Order_No', 'Sales Order No', 'sales_order_no');
+    const yItemCode = fc(ys, 'Item_Code', 'Item Code', 'item_code');
+    yesterday.forEach(r => {
+      let reaVal = r[yRea]; if (reaVal===undefined) reaVal=r['Rea']||r['rea']||r['REA']||'';
+      let ccVal = String(r[yCC]||r['DF:CC']||r['CC']||r['cc']||'').trim();
+      if (ccVal && !ccVal.startsWith('#') && ccVal.toLowerCase()!=='na') {
+        yesterReaMap[nor(ccVal)] = reaVal;
+      }
+      const so = String(r[ySoNo]||r['Sales_Order_No']||'').trim();
+      const ic = String(r[yItemCode]||r['Item_Code']||'').trim();
+      if (so && ic) yesterReaMap[nor(so+ic)] = reaVal;
+      if (so) yesterReaMap[nor(so)] = reaVal;
+    });
+  }
+  log(`Yesterday Rea map: ${Object.keys(yesterReaMap).length} entries`,'ok');
 
   const todaySerial = maxYestNumericRemark > 0
     ? maxYestNumericRemark + 1
@@ -609,13 +655,25 @@ async function run() {
       origin = 'Rebela';
     }
 
+    /* ── CONDITION 26(C): CFA Bangalore Origin Override ──────────────── */
+    if (CFA_CUSTOMER_GROUPS.has(nor(custGroup))
+        && CFA_BLR_ITEM_CODES.has(nor(itemCode))
+        && CFA_BLR_STATES.has(nor(shipState))) {
+      origin = 'CFA Bangalore';
+    }
+
     /* CONDITION 5: Day from Lead Time */
     const day = ltMap[nor(origin)+'||'+nor(shipState)] || 0;
 
-    /* CONDITION 6: Appt */
-    let apptSerial = null;
+    /* CONDITION 6: Appt (supports multi-date strings from Appointments) */
+    let apptSerial = null;   // numeric serial (single date)
+    let apptText   = '';     // raw text if multi-date
     if (isFK) {
-      apptSerial = apptMap[nor(row[COL.PoNo]||'')] || null;
+      const apptVal = apptMap[nor(row[COL.PoNo]||'')] || null;
+      if (apptVal !== null) {
+        if (typeof apptVal === 'number') { apptSerial = apptVal; }
+        else { apptText = String(apptVal); } // multi-date text
+      }
     } else if (isNow) {
       const sod = toSerial(row[COL.SoDate]);
       apptSerial = sod ? sod + 7 : null;
@@ -642,6 +700,13 @@ async function run() {
     if (remarkRaw === '' || remarkRaw === null || remarkRaw === undefined || String(remarkRaw).trim() === '') {
       remarkRaw = maxYestNumericRemark > 0 ? maxYestNumericRemark : todaySerial;
     }
+
+    /* CONDITION 25(B): Rea lookup from Yesterday via CC */
+    const reaLookup = yesterReaMap[nor(cc)]
+      ?? yesterReaMap[nor(row['DF:CC'])]
+      ?? yesterReaMap[nor(row['CC'])]
+      ?? yesterReaMap[nor(soNo)]
+      ?? '';
 
     /* CONDITION 10: If Dispatched, then EDD = Remark + Day */
     const remarkSerial = toSerial(remarkRaw);
@@ -685,6 +750,7 @@ async function run() {
       _remarkRaw: remarkRaw,
       _dispEDDSerial: dispEDDSerial,
       _apptSerial: apptSerial,
+      _apptText: apptText,
       _poExpirySerial: poExpirySerial,
       _soDateSerial: soDateSerial,
       /* ─ output columns (all display-formatted) ─ */
@@ -696,9 +762,9 @@ async function run() {
       Po_No: row[COL.PoNo]||'',
       po_expiry_date: poExpirySerial ? fmtD(poExpirySerial) : String(row[COL.PoExpiry]||''),
       customer_group: custGroup,
-      Appt: apptSerial ? fmtD(apptSerial) : '',
+      Appt: apptSerial ? fmtD(apptSerial) : (apptText || ''),
       Remark: fmtRemark(),
-      Rea: row['Rea']||'',
+      Rea: reaLookup || row['Rea'] || '',
       Priority: priority,
       'Final Dispatch Status': finalDisp,
       'If Dispatched, then EDD': dispEDDSerial ? fmtD(dispEDDSerial) : '',
@@ -859,8 +925,16 @@ function exportToExcel() {
     const dtKey = Object.keys(s0).find(k => /appt.?date/i.test(String(k))) || 'Appt date';
     refData.appointments.forEach(r => {
       const po = String(r[poKey]||r['Po_No']||r['S0- No.']||r['New SO-14']||'').trim();
-      const dt = toSerial(r[dtKey]);
-      if (po && dt) apptExport.push({ PO_No: po, Appt_Date: dt });
+      const rawVal = r[dtKey];
+      if (!po || rawVal===null || rawVal===undefined || String(rawVal).trim()==='') return;
+      const rawStr = String(rawVal).trim();
+      const hasMulti = rawStr.includes(',');
+      if (hasMulti) {
+        apptExport.push({ PO_No: po, Appt_Date: rawStr }); // multi-date text as-is
+      } else {
+        const dt = toSerial(rawVal);
+        if (dt) apptExport.push({ PO_No: po, Appt_Date: dt });
+      }
     });
   }
   const wsAppt = XLSX.utils.json_to_sheet(apptExport, {header:['PO_No','Appt_Date']});
@@ -880,9 +954,11 @@ function exportToExcel() {
     const yRemark = fc(ys, 'Remark', 'Remarks', 'remark', 'remarks');
     const ySoNo = fc(ys, 'Sales_Order_No', 'Sales Order No', 'sales_order_no');
     const yItemCode = fc(ys, 'Item_Code', 'Item Code', 'item_code');
+    const yRea = fc(ys, 'Rea', 'rea', 'REA');
     refData.yesterday.forEach(r => {
       let ccVal = String(r[yCC]||r['DF:CC']||r['CC']||r['cc']||'').trim();
       let rem = r[yRemark]; if(rem===undefined) rem=r['Remarks']||r['Remark']||r['remark']||'';
+      let reaVal = r[yRea]; if(reaVal===undefined) reaVal=r['Rea']||r['rea']||r['REA']||'';
       // Also build CC from SO+ItemCode if CC is missing
       if (!ccVal || ccVal.startsWith('#')) {
         const so = String(r[ySoNo]||r['Sales_Order_No']||'').trim();
@@ -891,15 +967,15 @@ function exportToExcel() {
       }
       if (ccVal) {
         const remarkSerial = toSerial(rem);
-        yestExport.push({ CC: ccVal.toLowerCase(), Remark: remarkSerial!==null ? remarkSerial : (rem||'') });
+        yestExport.push({ CC: ccVal.toLowerCase(), Remark: remarkSerial!==null ? remarkSerial : (rem||''), Rea: reaVal||'' });
       }
     });
   }
-  const wsYest = XLSX.utils.json_to_sheet(yestExport, {header:['CC','Remark']});
+  const wsYest = XLSX.utils.json_to_sheet(yestExport, {header:['CC','Remark','Rea']});
 
   /* ── Build main sheet with formulas ────────────────────────────────── */
   // First row: write raw values for non-formula columns, placeholders for formula columns
-  const FORMULA_COLS = new Set(['CC','Day','Appt','Remark','If Dispatched, then EDD','EDD','Priority','Merge','Dispatch_Status','Final Dispatch Status']);
+  const FORMULA_COLS = new Set(['CC','Day','Appt','Remark','Rea','If Dispatched, then EDD','EDD','Priority','Merge','Dispatch_Status','Final Dispatch Status']);
 
   const exportData = outputRows.map(row => {
     const obj = {};
@@ -947,6 +1023,10 @@ function exportToExcel() {
     // Condition 21 override: closed if PendKgs < OriginKgs AND >0 AND (Modern Trade/Quick Commerce) AND Avenue E-Commerce
     const remAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Remark']});
     ws[remAddr] = { t:'s', f:`IFERROR(VLOOKUP(LOWER(${C('CC')}${r}),Yesterday!A$2:B$${yestRows+1},2,FALSE),"")` };
+
+    // Rea (Condition 25/B): VLOOKUP from Yesterday on CC match (col 3 = Rea)
+    const reaAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Rea']});
+    ws[reaAddr] = { t:'s', f:`IFERROR(VLOOKUP(LOWER(${C('CC')}${r}),Yesterday!A$2:C$${yestRows+1},3,FALSE),"")` };
 
     // If Dispatched, then EDD = Remark + Day (Condition 10)
     const eddDispAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['If Dispatched, then EDD']});
