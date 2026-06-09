@@ -362,8 +362,17 @@ async function run() {
   const apptMap = {};
   if (apptData.length > 0) {
     const s = apptData[0];
-    const poKey = Object.keys(s).find(k => /po.?no/i.test(String(k))) || 'Po_No';
     const dtKey = Object.keys(s).find(k => /appt.?date/i.test(String(k))) || 'Appt date';
+    // Detect ALL PO-like columns in the Appointments file
+    const poKeys = Object.keys(s).filter(k =>
+      /po.?no/i.test(String(k)) || /s0.?no/i.test(String(k)) || /so.?no/i.test(String(k)) || /new\s*so/i.test(String(k))
+    );
+    // Also add common hardcoded names as fallbacks
+    ['Po_No','PO-No','PO No','po_no','S0- No.','New SO-14','Sales_Order_No'].forEach(n => {
+      if (s[n] !== undefined && !poKeys.includes(n)) poKeys.push(n);
+    });
+    log(`Appointments PO columns detected: ${poKeys.join(', ')} | Date column: ${dtKey}`,'info');
+
     apptData.forEach(r => {
       const rawVal = r[dtKey];
       if (rawVal === null || rawVal === undefined || String(rawVal).trim() === '') return;
@@ -380,14 +389,15 @@ async function run() {
         if (!dt) return;
         apptVal = dt;
       }
-      const po1 = nor(r['Po_No']);
-      const po2 = nor(r['S0- No.']);
-      const po3 = nor(r['New SO-14']);
-      const po4 = nor(r[poKey]);
-      if (po1) apptMap[po1] = apptVal;
-      if (po2) apptMap[po2] = apptVal;
-      if (po3) apptMap[po3] = apptVal;
-      if (po4) apptMap[po4] = apptVal;
+      // Index under EVERY PO-like column value (handles numeric & string POs)
+      poKeys.forEach(pk => {
+        const raw = r[pk];
+        if (raw === null || raw === undefined) return;
+        const key = String(raw).trim().toLowerCase();
+        if (key && key !== '' && key !== 'undefined' && key !== 'null') {
+          apptMap[key] = apptVal;
+        }
+      });
     });
   }
   log(`Appointments map: ${Object.keys(apptMap).length} PO entries`,'ok');
@@ -676,7 +686,18 @@ async function run() {
     let apptSerial = null;   // numeric serial (single date)
     let apptText   = '';     // raw text if multi-date
     if (isFK) {
-      const apptVal = apptMap[nor(row[COL.PoNo]||'')] || null;
+      // Try multiple lookup keys: Po_No, Sales_Order_No, and numeric/string variants
+      const poRaw = row[COL.PoNo] || '';
+      const poNorm = String(poRaw).trim().toLowerCase();
+      // Also try without leading zeros, as pure number, etc.
+      const poNumeric = String(parseFloat(poRaw) || '').toLowerCase();
+      const soNorm = String(row[COL.SalesOrderNo]||'').trim().toLowerCase();
+
+      const apptVal = apptMap[poNorm]
+        || (poNumeric !== 'nan' && poNumeric !== '0' ? apptMap[poNumeric] : null)
+        || apptMap[soNorm]
+        || null;
+
       if (apptVal !== null) {
         if (typeof apptVal === 'number') { apptSerial = apptVal; }
         else { apptText = String(apptVal); } // multi-date text
@@ -830,7 +851,11 @@ async function run() {
 
   outputRows = result;
   const cfaGurgaonCount = result.filter(r => r.Origin === 'CFA (Gurgaon)').length;
-  log(`Rows kept: ${kept} | Rows skipped: ${skipped} | CFA Gurgaon: ${cfaGurgaonCount}`,'ok');
+  const cfaBangaloreCount = result.filter(r => r.Origin === 'CFA Bangalore').length;
+  const fkRows = result.filter(r => ['fk-grocery-vs48860','fk-hyperlocal-vs46867','fk-alpha-vs46867'].includes(nor(r.client_type)));
+  const fkWithAppt = fkRows.filter(r => r.Appt && r.Appt !== '').length;
+  log(`Rows kept: ${kept} | Rows skipped: ${skipped} | CFA Gurgaon: ${cfaGurgaonCount} | CFA Bangalore: ${cfaBangaloreCount}`,'ok');
+  log(`FK rows: ${fkRows.length} total | ${fkWithAppt} with Appt matched | ${fkRows.length - fkWithAppt} without Appt`,'info');
 
   renderTable(result);
   const redCount = result.filter(r=>r._red).length;
@@ -924,14 +949,24 @@ function exportToExcel() {
   });
   const wsLT = XLSX.utils.json_to_sheet(ltExport, {header:['Origin','Shipping State','Day','Lookup_Key']});
 
-  // Appointments sheet: PO_No | Appt_Date
+  // Appointments sheet: PO_No | Appt_Date (use best PO column for reference sheet)
   const apptExport = [];
   if (refData.appointments.length > 0) {
     const s0 = refData.appointments[0];
-    const poKey = Object.keys(s0).find(k => /po.?no/i.test(String(k))) || 'Po_No';
+    const allPoKeys = Object.keys(s0).filter(k =>
+      /po.?no/i.test(String(k)) || /s0.?no/i.test(String(k)) || /so.?no/i.test(String(k)) || /new\s*so/i.test(String(k))
+    );
+    ['Po_No','PO-No','PO No','po_no','S0- No.','New SO-14','Sales_Order_No'].forEach(n => {
+      if (s0[n] !== undefined && !allPoKeys.includes(n)) allPoKeys.push(n);
+    });
     const dtKey = Object.keys(s0).find(k => /appt.?date/i.test(String(k))) || 'Appt date';
     refData.appointments.forEach(r => {
-      const po = String(r[poKey]||r['Po_No']||r['S0- No.']||r['New SO-14']||'').trim();
+      // Pick first non-empty PO value
+      let po = '';
+      for (const pk of allPoKeys) {
+        const v = String(r[pk]||'').trim();
+        if (v) { po = v; break; }
+      }
       const rawVal = r[dtKey];
       if (!po || rawVal===null || rawVal===undefined || String(rawVal).trim()==='') return;
       const rawStr = String(rawVal).trim();
