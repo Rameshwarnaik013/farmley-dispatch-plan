@@ -309,6 +309,23 @@ function serialToDateStr(s) {
   return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
 }
 
+// Like toSerial, but for the Remark column. A free-text remark that merely CONTAINS
+// a date fragment (e.g. "FTL 28 Jun Appt") must be kept verbatim, not coerced to a date.
+// Only true Excel serials and clean date strings convert; anything with stray words stays text.
+function remarkToSerial(val) {
+  if (typeof val === 'number') return Math.round(val);
+  if (typeof val === 'string') {
+    const t = val.trim();
+    if (t === '') return null;
+    if (/^\d+(\.\d+)?$/.test(t)) return Math.round(parseFloat(t));   // Excel serial number
+    // Remove month names, then if any letters remain it's free-text → keep as-is.
+    const stripped = t.replace(/jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/gi, '');
+    if (/[a-z]/i.test(stripped)) return null;
+    return toSerial(t);   // looks like a clean date → use the normal parser
+  }
+  return null;
+}
+
 const nor = s => String(s||'').trim().toLowerCase();
 const fc = (obj,...names) => { for(const n of names){ const f=Object.keys(obj).find(k=>nor(k)===nor(n)); if(f)return f; } return names[0]; };
 
@@ -737,7 +754,7 @@ async function run() {
       ?? '';
 
     /* CONDITION 10: If Dispatched, then EDD = Remark + Day */
-    const remarkSerial = toSerial(remarkRaw);
+    const remarkSerial = remarkToSerial(remarkRaw);
     let dispEDDSerial = null;
     if (remarkSerial !== null && day >= 0) {
       dispEDDSerial = remarkSerial + day;
@@ -1008,7 +1025,7 @@ function exportToExcel() {
         ccVal = so+ic;
       }
       if (ccVal) {
-        const remarkSerial = toSerial(rem);
+        const remarkSerial = remarkToSerial(rem);
         yestExport.push({ CC: ccVal.toLowerCase(), Remark: remarkSerial!==null ? remarkSerial : (rem||''), Rea: reaVal||'' });
       }
     });
