@@ -188,14 +188,14 @@ const CONDITIONS = [
   { sno:16, col:'Red Highlight',            rule:'Highlight row red if EDD > 1 (numeric). Rows where EDD is blank or text are not highlighted.' },
   { sno:17, col:'Merge',                    rule:'Concatenate Sales_Order_No + Branch.' },
   { sno:18, col:'Dispatch_Status',          rule:'If any Origin Status contains Partial Dispatch -> Partial Dispatch. Else if Pending -> Pending. Overrides Dump value.' },
-  { sno:19, col:'Origin → CFA (Gurgaon)',   rule:'Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa.' },
-  { sno:20, col:'Origin → CFA (Gurgaon)',   rule:'Condition 2: Item_Name must be in the 56-item CFA Gurgaon approved SKU list. Condition 3: Storage Beyond Sqfeet value > 0 in CFA Gurgaon Stock file. Condition 4: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 4 conditions are met → Origin = "CFA (Gurgaon)".' },
+  { sno:19, col:'Origin → CFA (GGN)',   rule:'Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa.' },
+  { sno:20, col:'Origin → CFA (GGN)',   rule:'Condition 2: Item_Name must be in the 56-item CFA Gurgaon approved SKU list. Condition 3: Storage Beyond Sqfeet value > 0 in CFA Gurgaon Stock file. Condition 4: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 4 conditions are met → Origin = "CFA (GGN)".' },
   { sno:22, col:'Delivered_Qty',            rule:'If Delivered_Qty is blank or missing, set it to 0.' },
   { sno:23, col:'Origin → Rebela',         rule:'If item_parent is "Munchies Waves" AND Shipping State is "Tamil Nadu" → Origin = "Rebela".' },
   { sno:24, col:'po_expiry_date',          rule:'If customer_group is "Airlines" → po_expiry_date is taken from Delivery_Date column instead of po_expiry_date.' },
   { sno:25, col:'Appt (multi-date)',       rule:'When the Appointments file has multiple dates in one cell (e.g. "1-Jun-26,7-Jun-26"), the entire string is fetched as-is via lookup.' },
   { sno:26, col:'Rea',                     rule:'Rea is looked up from Dispatch Plan_yesterday using CC column match. If found in Yesterday, use that value; otherwise keep Dump value.' },
-  { sno:27, col:'Origin → CFA Bangalore',  rule:'If customer_group is Amazon Retail India, Category A, Vending, or HoReCa AND Item_Code is Makhana_7-2992/2994/2995/2996/2997 AND Shipping State is Telangana, Andhra Pradesh, Karnataka, Tamil Nadu, or Kerala → Origin = "CFA Bangalore". No stock check required.' },
+  { sno:27, col:'Origin → CFA (BLR)',  rule:'If customer_group is Amazon Retail India, Category A, Vending, or HoReCa AND Item_Code is Makhana_7-2992/2994/2995/2996/2997 AND Shipping State is Telangana, Andhra Pradesh, Karnataka, Tamil Nadu, or Kerala → Origin = "CFA (BLR)". No stock check required.' },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -680,7 +680,7 @@ async function run() {
       const cfaStockOk = (cfaStockMap[nor(itemName)] || 0) > 0;
       const cfaStateOk = CFA_SHIPPING_STATES.has(nor(shipState));
       if (cfaCustOk && cfaItemOk && cfaStockOk && cfaStateOk) {
-        origin = 'CFA (Gurgaon)';
+        origin = 'CFA (GGN)';
       }
     }
 
@@ -693,7 +693,7 @@ async function run() {
     if (CFA_CUSTOMER_GROUPS.has(nor(custGroup))
         && CFA_BLR_ITEM_CODES.has(nor(itemCode))
         && CFA_BLR_STATES.has(nor(shipState))) {
-      origin = 'CFA Bangalore';
+      origin = 'CFA (BLR)';
     }
 
     /* CONDITION 5: Day from Lead Time */
@@ -822,7 +822,7 @@ async function run() {
       'Pending Kgs': pendKgs,
       Boxes: row['Boxes']||'',
       TPT: row['TPT']||'',
-      Origin: origin,  /* may be overridden to CFA (Gurgaon) */
+      Origin: origin,  /* may be overridden to CFA (GGN) / CFA (BLR) */
       Shipping_Address_Name: row['Shipping_Address_Name']||'',
       item_parent: row['item_parent']||'',
       'Case Size': row['Case Size']||'',
@@ -867,8 +867,8 @@ async function run() {
   });
 
   outputRows = result;
-  const cfaGurgaonCount = result.filter(r => r.Origin === 'CFA (Gurgaon)').length;
-  const cfaBangaloreCount = result.filter(r => r.Origin === 'CFA Bangalore').length;
+  const cfaGurgaonCount = result.filter(r => r.Origin === 'CFA (GGN)').length;
+  const cfaBangaloreCount = result.filter(r => r.Origin === 'CFA (BLR)').length;
   const fkRows = result.filter(r => ['fk-grocery-vs48860','fk-hyperlocal-vs46867','fk-alpha-vs46867'].includes(nor(r.client_type)));
   const fkWithAppt = fkRows.filter(r => r.Appt && r.Appt !== '').length;
   log(`Rows kept: ${kept} | Rows skipped: ${skipped} | CFA Gurgaon: ${cfaGurgaonCount} | CFA Bangalore: ${cfaBangaloreCount}`,'ok');
