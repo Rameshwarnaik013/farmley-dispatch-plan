@@ -166,6 +166,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 const files = { dump:null, leadtime:null, appointments:null, yesterday:null, cfaGurgaon:null };
 let outputRows = [];
 let logLines = [];
+let refData = { leadtime:[], appointments:[], yesterday:[] };
 
 /* ═══════════════════════════════════════════════════════════════════════════
    CONDITIONS DATA (for display)
@@ -187,10 +188,14 @@ const CONDITIONS = [
   { sno:16, col:'Red Highlight',            rule:'Highlight row red if EDD > 1 (numeric). Rows where EDD is blank or text are not highlighted.' },
   { sno:17, col:'Merge',                    rule:'Concatenate Sales_Order_No + Branch.' },
   { sno:18, col:'Dispatch_Status',          rule:'If any Origin Status contains Partial Dispatch -> Partial Dispatch. Else if Pending -> Pending. Overrides Dump value.' },
-  { sno:19, col:'Origin →CFA (GGN)',   rule:'Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa.' },
-  { sno:20, col:'Origin →CFA (GGN)',   rule:'Condition 2: Item_Name must be in the 56-item CFA Gurgaon approved SKU list. Condition 3: Storage Beyond Sqfeet value > 0 in CFA Gurgaon Stock file. Condition 4: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 4 conditions are met → Origin = "CFA (Gurgaon)".' },
-  { sno:21, col:'Remark → "closed"',        rule:'If Pending Kgs < Origin Kgs AND Pending Kgs > 0 AND customer_group is Modern Trade or Quick Commerce AND Customer is Avenue E-Commerce Ltd → Remark = "closed" (overrides VLOOKUP).' },
+  { sno:19, col:'Origin → CFA (GGN)',   rule:'Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa.' },
+  { sno:20, col:'Origin → CFA (GGN)',   rule:'Condition 2: Item_Name must be in the 56-item CFA Gurgaon approved SKU list. Condition 3: Storage Beyond Sqfeet value > 0 in CFA Gurgaon Stock file. Condition 4: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 4 conditions are met → Origin = "CFA (GGN)".' },
   { sno:22, col:'Delivered_Qty',            rule:'If Delivered_Qty is blank or missing, set it to 0.' },
+  { sno:23, col:'Origin → Rebela',         rule:'If item_parent is "Munchies Waves" AND Shipping State is "Tamil Nadu" → Origin = "Rebela".' },
+  { sno:24, col:'po_expiry_date',          rule:'If customer_group is "Airlines" → po_expiry_date is taken from Delivery_Date column instead of po_expiry_date.' },
+  { sno:25, col:'Appt (multi-date)',       rule:'When the Appointments file has multiple dates in one cell (e.g. "1-Jun-26,7-Jun-26"), the entire string is fetched as-is via lookup.' },
+  { sno:26, col:'Rea',                     rule:'Rea is looked up from Dispatch Plan_yesterday using CC column match. If found in Yesterday, use that value; otherwise keep Dump value.' },
+  { sno:27, col:'Origin → CFA (BLR)',  rule:'If customer_group is Amazon Retail India, Category A, Vending, or HoReCa AND Item_Code is Makhana_7-2992/2994/2995/2996/2997 AND Shipping State is Telangana, Andhra Pradesh, Karnataka, Tamil Nadu, or Kerala → Origin = "CFA (BLR)". No stock check required.' },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -304,6 +309,23 @@ function serialToDateStr(s) {
   return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
 }
 
+// Like toSerial, but for the Remark column. A free-text remark that merely CONTAINS
+// a date fragment (e.g. "FTL 28 Jun Appt") must be kept verbatim, not coerced to a date.
+// Only true Excel serials and clean date strings convert; anything with stray words stays text.
+function remarkToSerial(val) {
+  if (typeof val === 'number') return Math.round(val);
+  if (typeof val === 'string') {
+    const t = val.trim();
+    if (t === '') return null;
+    if (/^\d+(\.\d+)?$/.test(t)) return Math.round(parseFloat(t));   // Excel serial number
+    // Remove month names, then if any letters remain it's free-text → keep as-is.
+    const stripped = t.replace(/jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/gi, '');
+    if (/[a-z]/i.test(stripped)) return null;
+    return toSerial(t);   // looks like a clean date → use the normal parser
+  }
+  return null;
+}
+
 const nor = s => String(s||'').trim().toLowerCase();
 const fc = (obj,...names) => { for(const n of names){ const f=Object.keys(obj).find(k=>nor(k)===nor(n)); if(f)return f; } return names[0]; };
 
@@ -338,6 +360,11 @@ async function run() {
 
   log(`Dump: ${dump.length} rows | Lead Time: ${ltData.length} | Appointments: ${apptData.length} | Yesterday: ${yesterday.length}` + (cfaData.length ? ` | CFA Gurgaon: ${cfaData.length}` : ''),'ok');
 
+  // Store reference data globally for formula-based export
+  refData.leadtime = ltData;
+  refData.appointments = apptData;
+  refData.yesterday = yesterday;
+
   /* ── CONDITION 5: Lead Time map ─────────────────────────────────────── */
   const ltMap = {};
   ltData.forEach(r => {
@@ -348,23 +375,46 @@ async function run() {
   });
   log(`Lead Time map: ${Object.keys(ltMap).length} entries`,'ok');
 
-  /* ── CONDITION 6: Appointments map ──────────────────────────────────── */
+  /* ── CONDITION 6: Appointments map (supports multi-date cells) ───── */
   const apptMap = {};
   if (apptData.length > 0) {
     const s = apptData[0];
-    const poKey = Object.keys(s).find(k => /po.?no/i.test(String(k))) || 'Po_No';
     const dtKey = Object.keys(s).find(k => /appt.?date/i.test(String(k))) || 'Appt date';
+    // Detect ALL PO-like columns in the Appointments file
+    const poKeys = Object.keys(s).filter(k =>
+      /po.?no/i.test(String(k)) || /s0.?no/i.test(String(k)) || /so.?no/i.test(String(k)) || /new\s*so/i.test(String(k))
+    );
+    // Also add common hardcoded names as fallbacks
+    ['Po_No','PO-No','PO No','po_no','S0- No.','New SO-14','Sales_Order_No'].forEach(n => {
+      if (s[n] !== undefined && !poKeys.includes(n)) poKeys.push(n);
+    });
+    log(`Appointments PO columns detected: ${poKeys.join(', ')} | Date column: ${dtKey}`,'info');
+
     apptData.forEach(r => {
-      const dt = toSerial(r[dtKey]);
-      if (!dt) return;
-      const po1 = nor(r['Po_No']);
-      const po2 = nor(r['S0- No.']);
-      const po3 = nor(r['New SO-14']);
-      const po4 = nor(r[poKey]);
-      if (po1) apptMap[po1] = dt;
-      if (po2) apptMap[po2] = dt;
-      if (po3) apptMap[po3] = dt;
-      if (po4) apptMap[po4] = dt;
+      const rawVal = r[dtKey];
+      if (rawVal === null || rawVal === undefined || String(rawVal).trim() === '') return;
+      const rawStr = String(rawVal).trim();
+      // Check if cell has multiple dates (comma-separated)
+      const hasMulti = rawStr.includes(',');
+      let apptVal;
+      if (hasMulti) {
+        // Store the entire multi-date string as-is (text)
+        apptVal = rawStr;
+      } else {
+        // Single date — convert to serial
+        const dt = toSerial(rawVal);
+        if (!dt) return;
+        apptVal = dt;
+      }
+      // Index under EVERY PO-like column value (handles numeric & string POs)
+      poKeys.forEach(pk => {
+        const raw = r[pk];
+        if (raw === null || raw === undefined) return;
+        const key = String(raw).trim().toLowerCase();
+        if (key && key !== '' && key !== 'undefined' && key !== 'null') {
+          apptMap[key] = apptVal;
+        }
+      });
     });
   }
   log(`Appointments map: ${Object.keys(apptMap).length} PO entries`,'ok');
@@ -448,6 +498,21 @@ async function run() {
     'farmley power trail mix pouch 200 g',
   ].map(s => s.toLowerCase()));
 
+  /* ── CFA Bangalore constants (Condition 26/C) ─────────────────────── */
+  const CFA_BLR_ITEM_CODES = new Set([
+    'makhana_7-2979','makhana_7-2980','makhana_7-2981','makhana_7-2982','makhana_7-2983',
+    'makhana_7-2984','makhana_7-2985','makhana_7-2986','makhana_7-2992','makhana_7-2993',
+    'makhana_7-2994','makhana_7-2995','makhana_7-2996','makhana_7-2997','makhana_7-2998',
+    'makhana_7-30073','makhana_7-30074','makhana_7-30075','makhana_7-30079',
+    'makhana_7-30096','makhana_7-30097','makhana_7-30098','makhana_7-30135',
+    'makhana_7-30136','makhana_7-30140','makhana_7-30146','makhana_7-30147',
+    'makhana_7-30149','makhana_7-30151','makhana_7-30152','makhana_7-30153',
+    'makhana_7-30154','makhana_7-30155'
+  ]);
+  const CFA_BLR_STATES = new Set([
+    'telangana','andhra pradesh','karnataka','tamil nadu','kerala'
+  ]);
+
   /* ── CONDITION 7: Yesterday Remark map ───────────────────────────────── */
   const yesterMap = {};
   let maxYestNumericRemark = 0;
@@ -492,6 +557,28 @@ async function run() {
   }
   log(`Yesterday remarks: ${Object.keys(yesterMap).length} CC entries`,'ok');
 
+  /* ── CONDITION 25(B): Yesterday Rea map (CC → Rea) ─────────────────── */
+  const yesterReaMap = {};
+  if (yesterday.length > 0) {
+    const ys = yesterday[0];
+    const yCC = fc(ys, 'CC', 'cc', 'DF:CC');
+    const yRea = fc(ys, 'Rea', 'rea', 'REA');
+    const ySoNo = fc(ys, 'Sales_Order_No', 'Sales Order No', 'sales_order_no');
+    const yItemCode = fc(ys, 'Item_Code', 'Item Code', 'item_code');
+    yesterday.forEach(r => {
+      let reaVal = r[yRea]; if (reaVal===undefined) reaVal=r['Rea']||r['rea']||r['REA']||'';
+      let ccVal = String(r[yCC]||r['DF:CC']||r['CC']||r['cc']||'').trim();
+      if (ccVal && !ccVal.startsWith('#') && ccVal.toLowerCase()!=='na') {
+        yesterReaMap[nor(ccVal)] = reaVal;
+      }
+      const so = String(r[ySoNo]||r['Sales_Order_No']||'').trim();
+      const ic = String(r[yItemCode]||r['Item_Code']||'').trim();
+      if (so && ic) yesterReaMap[nor(so+ic)] = reaVal;
+      if (so) yesterReaMap[nor(so)] = reaVal;
+    });
+  }
+  log(`Yesterday Rea map: ${Object.keys(yesterReaMap).length} entries`,'ok');
+
   const todaySerial = maxYestNumericRemark > 0
     ? maxYestNumericRemark + 1
     : Math.round((new Date() - new Date('1899-12-30T00:00:00Z')) / 86400000);
@@ -521,6 +608,8 @@ async function run() {
     ItemName:     fc(ds,'Item_Name','Item Name','Item_name','item_name'),
     OriginKgs:    fc(ds,'Origin Kgs','Origin_Kgs','OriginKgs'),
     Customer:     fc(ds,'Customer'),
+    ItemParent:   fc(ds,'item_parent','Item Parent','Item_Parent'),
+    DeliveryDate: fc(ds,'Delivery_Date','Delivery Date','delivery_date'),
   };
 
   const FK_TYPES = new Set(['fk-grocery-vs48860','fk-hyperlocal-vs46867','fk-alpha-vs46867']);
@@ -584,30 +673,60 @@ async function run() {
     const isNow = nor(clientType)==='now';
     const isCat = CAT_GROUP.has(nor(custGroup)); // Category A or Modern Trade
 
-    /* ──CFA (GGN) Origin Override (conditions 19-20) ──────────── */
+    /* ── CFA (Gurgaon) Origin Override (conditions 19-20) ──────────── */
     if (files.cfaGurgaon) {
       const cfaCustOk  = CFA_CUSTOMER_GROUPS.has(nor(custGroup));
       const cfaItemOk  = CFA_ITEM_LIST.has(nor(itemName));
       const cfaStockOk = (cfaStockMap[nor(itemName)] || 0) > 0;
       const cfaStateOk = CFA_SHIPPING_STATES.has(nor(shipState));
       if (cfaCustOk && cfaItemOk && cfaStockOk && cfaStateOk) {
-        origin = 'CFA (Gurgaon)';
+        origin = 'CFA (GGN)';
       }
+    }
+
+    /* ── CONDITION 23: Munchies Waves + Tamil Nadu → Origin = Rebela ─ */
+    if (nor(row[COL.ItemParent] || row['item_parent'] || '') === 'munchies waves' && nor(shipState) === 'tamil nadu') {
+      origin = 'Rebela';
+    }
+
+    /* ── CONDITION 26(C): CFA Bangalore Origin Override ──────────────── */
+    if (CFA_CUSTOMER_GROUPS.has(nor(custGroup))
+        && CFA_BLR_ITEM_CODES.has(nor(itemCode))
+        && CFA_BLR_STATES.has(nor(shipState))) {
+      origin = 'CFA (BLR)';
     }
 
     /* CONDITION 5: Day from Lead Time */
     const day = ltMap[nor(origin)+'||'+nor(shipState)] || 0;
 
-    /* CONDITION 6: Appt */
-    let apptSerial = null;
+    /* CONDITION 6: Appt (supports multi-date strings from Appointments) */
+    let apptSerial = null;   // numeric serial (single date)
+    let apptText   = '';     // raw text if multi-date
     if (isFK) {
-      apptSerial = apptMap[nor(row[COL.PoNo]||'')] || null;
+      // Try multiple lookup keys: Po_No, Sales_Order_No, and numeric/string variants
+      const poRaw = row[COL.PoNo] || '';
+      const poNorm = String(poRaw).trim().toLowerCase();
+      // Also try without leading zeros, as pure number, etc.
+      const poNumeric = String(parseFloat(poRaw) || '').toLowerCase();
+      const soNorm = String(row[COL.SalesOrderNo]||'').trim().toLowerCase();
+
+      const apptVal = apptMap[poNorm]
+        || (poNumeric !== 'nan' && poNumeric !== '0' ? apptMap[poNumeric] : null)
+        || apptMap[soNorm]
+        || null;
+
+      if (apptVal !== null) {
+        if (typeof apptVal === 'number') { apptSerial = apptVal; }
+        else { apptText = String(apptVal); } // multi-date text
+      }
     } else if (isNow) {
       const sod = toSerial(row[COL.SoDate]);
       apptSerial = sod ? sod + 7 : null;
     }
 
-    const poExpirySerial = toSerial(row[COL.PoExpiry]);
+    /* ── CONDITION 24: Airlines → po_expiry_date = Delivery_Date ──── */
+    const isAirlines = nor(custGroup) === 'airlines';
+    const poExpirySerial = isAirlines ? (toSerial(row['Delivery_Date'] || row[COL.DeliveryDate]) || toSerial(row[COL.PoExpiry])) : toSerial(row[COL.PoExpiry]);
     const soDateSerial   = toSerial(row[COL.SoDate]);
 
     /* ── REMARK ─────────────────────────────────────────────────────────────
@@ -620,27 +739,22 @@ async function run() {
       ?? yesterMap[nor(row['CC'])]
       ?? yesterMap[nor(soNo)];
 
-    /* ── CONDITION 21: Remark → "closed" override ──────────────────── */
-    const custGroupNor21 = nor(custGroup);
-    const isRemarkClosed = pendKgs < originKgs
-      && pendKgs > 0
-      && (custGroupNor21 === 'modern trade' || custGroupNor21 === 'quick commerce')
-      && nor(customerVal) === 'avenue e-commerce ltd';
-
-    let remarkRaw;
-    if (isRemarkClosed) {
-      remarkRaw = 'closed';
-    } else {
-      remarkRaw = (ysRemark !== undefined) ? ysRemark : '';
-    }
+    let remarkRaw = (ysRemark !== undefined) ? ysRemark : '';
 
     // Default to yesterday's date serial if still blank to ensure dates remain exactly as-is
     if (remarkRaw === '' || remarkRaw === null || remarkRaw === undefined || String(remarkRaw).trim() === '') {
       remarkRaw = maxYestNumericRemark > 0 ? maxYestNumericRemark : todaySerial;
     }
 
+    /* CONDITION 25(B): Rea lookup from Yesterday via CC */
+    const reaLookup = yesterReaMap[nor(cc)]
+      ?? yesterReaMap[nor(row['DF:CC'])]
+      ?? yesterReaMap[nor(row['CC'])]
+      ?? yesterReaMap[nor(soNo)]
+      ?? '';
+
     /* CONDITION 10: If Dispatched, then EDD = Remark + Day */
-    const remarkSerial = toSerial(remarkRaw);
+    const remarkSerial = remarkToSerial(remarkRaw);
     let dispEDDSerial = null;
     if (remarkSerial !== null && day >= 0) {
       dispEDDSerial = remarkSerial + day;
@@ -681,6 +795,7 @@ async function run() {
       _remarkRaw: remarkRaw,
       _dispEDDSerial: dispEDDSerial,
       _apptSerial: apptSerial,
+      _apptText: apptText,
       _poExpirySerial: poExpirySerial,
       _soDateSerial: soDateSerial,
       /* ─ output columns (all display-formatted) ─ */
@@ -692,9 +807,9 @@ async function run() {
       Po_No: row[COL.PoNo]||'',
       po_expiry_date: poExpirySerial ? fmtD(poExpirySerial) : String(row[COL.PoExpiry]||''),
       customer_group: custGroup,
-      Appt: apptSerial ? fmtD(apptSerial) : '',
+      Appt: apptSerial ? fmtD(apptSerial) : (apptText || ''),
       Remark: fmtRemark(),
-      Rea: row['Rea']||'',
+      Rea: reaLookup || row['Rea'] || '',
       Priority: priority,
       'Final Dispatch Status': finalDisp,
       'If Dispatched, then EDD': dispEDDSerial ? fmtD(dispEDDSerial) : '',
@@ -707,7 +822,7 @@ async function run() {
       'Pending Kgs': pendKgs,
       Boxes: row['Boxes']||'',
       TPT: row['TPT']||'',
-      Origin: origin,  /* may be overridden toCFA (GGN) */
+      Origin: origin,  /* may be overridden to CFA (GGN) / CFA (BLR) */
       Shipping_Address_Name: row['Shipping_Address_Name']||'',
       item_parent: row['item_parent']||'',
       'Case Size': row['Case Size']||'',
@@ -752,8 +867,12 @@ async function run() {
   });
 
   outputRows = result;
-  const cfaGurgaonCount = result.filter(r => r.Origin === 'CFA (Gurgaon)').length;
-  log(`Rows kept: ${kept} | Rows skipped: ${skipped} | CFA Gurgaon: ${cfaGurgaonCount}`,'ok');
+  const cfaGurgaonCount = result.filter(r => r.Origin === 'CFA (GGN)').length;
+  const cfaBangaloreCount = result.filter(r => r.Origin === 'CFA (BLR)').length;
+  const fkRows = result.filter(r => ['fk-grocery-vs48860','fk-hyperlocal-vs46867','fk-alpha-vs46867'].includes(nor(r.client_type)));
+  const fkWithAppt = fkRows.filter(r => r.Appt && r.Appt !== '').length;
+  log(`Rows kept: ${kept} | Rows skipped: ${skipped} | CFA Gurgaon: ${cfaGurgaonCount} | CFA Bangalore: ${cfaBangaloreCount}`,'ok');
+  log(`FK rows: ${fkRows.length} total | ${fkWithAppt} with Appt matched | ${fkRows.length - fkWithAppt} without Appt`,'info');
 
   renderTable(result);
   const redCount = result.filter(r=>r._red).length;
@@ -826,45 +945,182 @@ const NUMERIC_COLS = new Set([
 function exportToExcel() {
   if (!outputRows.length) return;
 
+  /* ── Column index map (0-based) for formula references ─────────────── */
+  const colIdx = {};
+  EXPORT_COLS.forEach((h, i) => { colIdx[h] = i; });
+  const colLetter = idx => {
+    let s = '';
+    idx++;
+    while (idx > 0) { idx--; s = String.fromCharCode(65 + (idx % 26)) + s; idx = Math.floor(idx / 26); }
+    return s;
+  };
+  const C = name => colLetter(colIdx[name]);
+
+  /* ── Build reference sheets ────────────────────────────────────────── */
+  // LEAD TIME sheet: Origin | Shipping State | Day | Lookup_Key (helper)
+  const ltExport = refData.leadtime.map(r => {
+    const orig = String(r.Origin||r.origin||'').trim();
+    const state = String(r['Shipping State']||r.Shipping_State||r['shipping state']||'').trim();
+    const day = parseInt(r.Day||r.day)||0;
+    return { Origin: orig, 'Shipping State': state, Day: day, Lookup_Key: orig.toLowerCase()+'||'+state.toLowerCase() };
+  });
+  const wsLT = XLSX.utils.json_to_sheet(ltExport, {header:['Origin','Shipping State','Day','Lookup_Key']});
+
+  // Appointments sheet: PO_No | Appt_Date (use best PO column for reference sheet)
+  const apptExport = [];
+  if (refData.appointments.length > 0) {
+    const s0 = refData.appointments[0];
+    const allPoKeys = Object.keys(s0).filter(k =>
+      /po.?no/i.test(String(k)) || /s0.?no/i.test(String(k)) || /so.?no/i.test(String(k)) || /new\s*so/i.test(String(k))
+    );
+    ['Po_No','PO-No','PO No','po_no','S0- No.','New SO-14','Sales_Order_No'].forEach(n => {
+      if (s0[n] !== undefined && !allPoKeys.includes(n)) allPoKeys.push(n);
+    });
+    const dtKey = Object.keys(s0).find(k => /appt.?date/i.test(String(k))) || 'Appt date';
+    refData.appointments.forEach(r => {
+      // Pick first non-empty PO value
+      let po = '';
+      for (const pk of allPoKeys) {
+        const v = String(r[pk]||'').trim();
+        if (v) { po = v; break; }
+      }
+      const rawVal = r[dtKey];
+      if (!po || rawVal===null || rawVal===undefined || String(rawVal).trim()==='') return;
+      const rawStr = String(rawVal).trim();
+      const hasMulti = rawStr.includes(',');
+      if (hasMulti) {
+        apptExport.push({ PO_No: po, Appt_Date: rawStr }); // multi-date text as-is
+      } else {
+        const dt = toSerial(rawVal);
+        if (dt) apptExport.push({ PO_No: po, Appt_Date: dt });
+      }
+    });
+  }
+  const wsAppt = XLSX.utils.json_to_sheet(apptExport, {header:['PO_No','Appt_Date']});
+  // Format Appt_Date as date
+  if (apptExport.length > 0) {
+    for (let R=1; R<=apptExport.length; R++) {
+      const addr = XLSX.utils.encode_cell({r:R, c:1});
+      if (wsAppt[addr] && typeof wsAppt[addr].v==='number') { wsAppt[addr].z='YYYY-MM-DD'; }
+    }
+  }
+
+  // Yesterday sheet: CC | Remark
+  const yestExport = [];
+  if (refData.yesterday.length > 0) {
+    const ys = refData.yesterday[0];
+    const yCC = fc(ys, 'CC', 'cc', 'DF:CC');
+    const yRemark = fc(ys, 'Remark', 'Remarks', 'remark', 'remarks');
+    const ySoNo = fc(ys, 'Sales_Order_No', 'Sales Order No', 'sales_order_no');
+    const yItemCode = fc(ys, 'Item_Code', 'Item Code', 'item_code');
+    const yRea = fc(ys, 'Rea', 'rea', 'REA');
+    refData.yesterday.forEach(r => {
+      let ccVal = String(r[yCC]||r['DF:CC']||r['CC']||r['cc']||'').trim();
+      let rem = r[yRemark]; if(rem===undefined) rem=r['Remarks']||r['Remark']||r['remark']||'';
+      let reaVal = r[yRea]; if(reaVal===undefined) reaVal=r['Rea']||r['rea']||r['REA']||'';
+      // Also build CC from SO+ItemCode if CC is missing
+      if (!ccVal || ccVal.startsWith('#')) {
+        const so = String(r[ySoNo]||r['Sales_Order_No']||'').trim();
+        const ic = String(r[yItemCode]||r['Item_Code']||'').trim();
+        ccVal = so+ic;
+      }
+      if (ccVal) {
+        const remarkSerial = remarkToSerial(rem);
+        yestExport.push({ CC: ccVal.toLowerCase(), Remark: remarkSerial!==null ? remarkSerial : (rem||''), Rea: reaVal||'' });
+      }
+    });
+  }
+  const wsYest = XLSX.utils.json_to_sheet(yestExport, {header:['CC','Remark','Rea']});
+
+  /* ── Build main sheet with formulas ────────────────────────────────── */
+  // First row: write raw values for non-formula columns, placeholders for formula columns
+  const FORMULA_COLS = new Set(['CC','Day','Appt','Remark','Rea','If Dispatched, then EDD','EDD','Priority','Merge','Dispatch_Status','Final Dispatch Status']);
+
   const exportData = outputRows.map(row => {
     const obj = {};
     EXPORT_COLS.forEach(h => {
-      // Export computed date columns as serial numbers so Excel shows them as dates
-      if (h==='Sales_Order_Date')              obj[h] = row._soDateSerial  || '';
-      else if (h==='po_expiry_date')           obj[h] = row._poExpirySerial|| '';
-      else if (h==='Appt')                     obj[h] = row._apptSerial    || '';
-      else if (h==='Remark')                   obj[h] = row._remarkSerial!==null ? row._remarkSerial : (row._remarkRaw||'');
-      else if (h==='If Dispatched, then EDD')  obj[h] = row._dispEDDSerial || '';
-      // Convert pass-through date columns to serials
+      if (FORMULA_COLS.has(h)) {
+        obj[h] = ''; // placeholder — will be overwritten with formula
+      } else if (h==='Sales_Order_Date')  obj[h] = row._soDateSerial || '';
+      else if (h==='po_expiry_date')      obj[h] = row._poExpirySerial || '';
       else if (h==='Delivery_Date' || h==='DATE(tso.sales_order_confirmation_date)') {
-        const serial = toSerial(row[h]);
-        obj[h] = serial !== null ? serial : (row[h] || '');
-      }
-      // Ensure numeric columns are actual numbers, not strings
-      else if (NUMERIC_COLS.has(h)) {
+        const serial = toSerial(row[h]); obj[h] = serial!==null ? serial : (row[h]||'');
+      } else if (NUMERIC_COLS.has(h)) {
         const val = row[h];
-        if (val === '' || val === null || val === undefined) { obj[h] = ''; }
-        else if (typeof val === 'number') { obj[h] = val; }
-        else { const n = parseFloat(val); obj[h] = (!isNaN(n) ? n : val); }
-      }
-      else obj[h] = row[h] ?? '';
+        if (val===''||val===null||val===undefined) obj[h]='';
+        else if (typeof val==='number') obj[h]=val;
+        else { const n=parseFloat(val); obj[h]=(!isNaN(n)?n:val); }
+      } else obj[h] = row[h] ?? '';
     });
     return obj;
   });
 
   const ws = XLSX.utils.json_to_sheet(exportData, {header: EXPORT_COLS});
 
-  // Apply number formats to date and numeric columns
-  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+  /* ── Inject Excel formulas into computed columns ───────────────────── */
+  const totalRows = outputRows.length;
+  const ltRows = ltExport.length;
+  const apptRows = apptExport.length;
+  const yestRows = yestExport.length;
 
+  for (let i = 0; i < totalRows; i++) {
+    const r = i + 2; // Excel row (1-indexed, row 1 = header)
+
+    // CC = Sales_Order_No & Item_Code (Condition 4)
+    const ccAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['CC']});
+    ws[ccAddr] = { t:'s', f:`${C('Sales_Order_No')}${r}&${C('Item_Code')}${r}` };
+
+    // Day = INDEX-MATCH from LEAD TIME using LOWER(Origin)||LOWER(Shipping State) (Condition 5)
+    const dayAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Day']});
+    ws[dayAddr] = { t:'n', f:`IFERROR(INDEX('LEAD TIME'!C$2:C$${ltRows+1},MATCH(LOWER(${C('Origin')}${r})&"||"&LOWER(${C('Shipping State')}${r}),'LEAD TIME'!D$2:D$${ltRows+1},0)),0)` };
+
+    // Appt (Condition 6): FK types → VLOOKUP on Po_No; "Now" → Sales_Order_Date+7
+    const apptAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Appt']});
+    ws[apptAddr] = { t:'n', f:`IF(OR(${C('client_type')}${r}="FK-Grocery-VS48860",${C('client_type')}${r}="FK-Hyperlocal-VS46867",${C('client_type')}${r}="FK-Alpha-VS46867"),IFERROR(VLOOKUP(${C('Po_No')}${r},Appointments!A$2:B$${apptRows+1},2,FALSE),""),IF(LOWER(${C('client_type')}${r})="now",IF(ISNUMBER(${C('Sales_Order_Date')}${r}),${C('Sales_Order_Date')}${r}+7,""),""))`, z:'YYYY-MM-DD' };
+
+    // Remark (Condition 7): VLOOKUP from Yesterday on CC match
+    // Condition 21 override: closed if PendKgs < OriginKgs AND >0 AND (Modern Trade/Quick Commerce) AND Avenue E-Commerce
+    const remAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Remark']});
+    ws[remAddr] = { t:'s', f:`IFERROR(VLOOKUP(LOWER(${C('CC')}${r}),Yesterday!A$2:B$${yestRows+1},2,FALSE),"")` };
+
+    // Rea (Condition 25/B): VLOOKUP from Yesterday on CC match (col 3 = Rea)
+    const reaAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Rea']});
+    ws[reaAddr] = { t:'s', f:`IFERROR(VLOOKUP(LOWER(${C('CC')}${r}),Yesterday!A$2:C$${yestRows+1},3,FALSE),"")` };
+
+    // If Dispatched, then EDD = Remark + Day (Condition 10)
+    const eddDispAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['If Dispatched, then EDD']});
+    ws[eddDispAddr] = { t:'n', f:`IF(ISNUMBER(${C('Remark')}${r}),${C('Remark')}${r}+${C('Day')}${r},"")`, z:'YYYY-MM-DD' };
+
+    // EDD (Conditions 12-14): FK → IfDispEDD-Appt; Others → IfDispEDD-po_expiry; fallback → IfDispEDD
+    const eddAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['EDD']});
+    ws[eddAddr] = { t:'n', f:`IF(ISNUMBER(${C('If Dispatched, then EDD')}${r}),IF(OR(${C('client_type')}${r}="FK-Grocery-VS48860",${C('client_type')}${r}="FK-Hyperlocal-VS46867",${C('client_type')}${r}="FK-Alpha-VS46867"),IF(ISNUMBER(${C('Appt')}${r}),${C('If Dispatched, then EDD')}${r}-${C('Appt')}${r},${C('If Dispatched, then EDD')}${r}),IF(ISNUMBER(${C('po_expiry_date')}${r}),${C('If Dispatched, then EDD')}${r}-${C('po_expiry_date')}${r},${C('If Dispatched, then EDD')}${r})),"")`, z:'0' };
+
+    // Priority (Condition 15): P2 if EDD<0, P1 if EDD=0 or 1
+    const prAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Priority']});
+    ws[prAddr] = { t:'s', f:`IF(NOT(ISNUMBER(${C('EDD')}${r})),"",IF(${C('EDD')}${r}<0,"P2",IF(OR(${C('EDD')}${r}=0,${C('EDD')}${r}=1),"P1","")))` };
+
+    // Final Dispatch Status (Condition 3/18)
+    const fdAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Final Dispatch Status']});
+    ws[fdAddr] = { t:'s', f:`IF(OR(ISNUMBER(SEARCH("Partial Dispatch",${C('Origin_Indore_Status')}${r})),ISNUMBER(SEARCH("Partial Dispatch",${C('Origin_Purnea_Status')}${r})),ISNUMBER(SEARCH("Partial Dispatch",${C('Origin_UD_Foods_Status')}${r}))),"Partial Dispatch",IF(OR(ISNUMBER(SEARCH("Pending",${C('Origin_Indore_Status')}${r})),ISNUMBER(SEARCH("Pending",${C('Origin_Purnea_Status')}${r})),ISNUMBER(SEARCH("Pending",${C('Origin_UD_Foods_Status')}${r}))),"Pending",""))` };
+
+    // Dispatch_Status (same logic as Final Dispatch Status)
+    const dsAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Dispatch_Status']});
+    ws[dsAddr] = { t:'s', f:`IF(OR(ISNUMBER(SEARCH("Partial Dispatch",${C('Origin_Indore_Status')}${r})),ISNUMBER(SEARCH("Partial Dispatch",${C('Origin_Purnea_Status')}${r})),ISNUMBER(SEARCH("Partial Dispatch",${C('Origin_UD_Foods_Status')}${r}))),"Partial Dispatch",IF(OR(ISNUMBER(SEARCH("Pending",${C('Origin_Indore_Status')}${r})),ISNUMBER(SEARCH("Pending",${C('Origin_Purnea_Status')}${r})),ISNUMBER(SEARCH("Pending",${C('Origin_UD_Foods_Status')}${r}))),"Pending",""))` };
+
+    // Merge = Sales_Order_No & Branch (Condition 17)
+    const mgAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Merge']});
+    ws[mgAddr] = { t:'s', f:`${C('Sales_Order_No')}${r}&${C('Branch')}${r}` };
+  }
+
+  /* ── Apply number formats to date and numeric columns ──────────────── */
+  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
   for (let R = range.s.r+1; R <= range.e.r; R++) {
     EXPORT_COLS.forEach((h, ci) => {
       const addr = XLSX.utils.encode_cell({r:R, c:ci});
       if (!ws[addr]) return;
+      if (FORMULA_COLS.has(h)) return; // already handled
       if (DATE_COLS.has(h) && typeof ws[addr].v === 'number') {
         ws[addr].t = 'n'; ws[addr].z = 'YYYY-MM-DD';
-      } else if (h === 'EDD' && typeof ws[addr].v === 'number') {
-        ws[addr].t = 'n'; ws[addr].z = '0';  // integer format
       } else if (NUMERIC_COLS.has(h) && typeof ws[addr].v === 'number') {
         ws[addr].t = 'n';
       }
@@ -874,10 +1130,14 @@ function exportToExcel() {
   // Set column widths
   ws['!cols'] = EXPORT_COLS.map(h => ({wch: Math.min(Math.max(h.length+2, 10), 30)}));
 
+  /* ── Assemble workbook with all sheets ─────────────────────────────── */
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Dispatch plan_Today');
+  XLSX.utils.book_append_sheet(wb, wsLT, 'LEAD TIME');
+  XLSX.utils.book_append_sheet(wb, wsAppt, 'Appointments');
+  XLSX.utils.book_append_sheet(wb, wsYest, 'Yesterday');
   XLSX.writeFile(wb, 'Dispatch_Plan_Today_'+new Date().toISOString().slice(0,10)+'.xlsx');
-  log('✓ Excel exported','ok');
+  log('✓ Excel exported with formulas + reference sheets (LEAD TIME, Appointments, Yesterday)','ok');
 }
 
 
