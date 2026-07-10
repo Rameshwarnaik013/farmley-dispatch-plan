@@ -187,8 +187,8 @@ const CONDITIONS = [
   { sno:16, col:'Red Highlight',            rule:'Highlight row red if EDD > 1 (numeric). Rows where EDD is blank or text are not highlighted.' },
   { sno:17, col:'Merge',                    rule:'Concatenate Sales_Order_No + Branch.' },
   { sno:18, col:'Dispatch_Status',          rule:'If any Origin Status contains Partial Dispatch -> Partial Dispatch. Else if Pending -> Pending. Overrides Dump value.' },
-  { sno:19, col:'Origin → CFA (Gurgaon)',   rule:'Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa.' },
-  { sno:20, col:'Origin → CFA (Gurgaon)',   rule:'Condition 2: Item_Name must be in the 56-item CFA Gurgaon approved SKU list. Condition 3: Storage Beyond Sqfeet value > 0 in CFA Gurgaon Stock file. Condition 4: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 4 conditions are met → Origin = "CFA (Gurgaon)".' },
+  { sno:19, col:'Origin →CFA (GGN)',   rule:'Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa.' },
+  { sno:20, col:'Origin →CFA (GGN)',   rule:'Condition 2: Item_Name must be in the 56-item CFA Gurgaon approved SKU list. Condition 3: Storage Beyond Sqfeet value > 0 in CFA Gurgaon Stock file. Condition 4: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 4 conditions are met → Origin = "CFA (Gurgaon)".' },
   { sno:21, col:'Remark → "closed"',        rule:'If Pending Kgs < Origin Kgs AND Pending Kgs > 0 AND customer_group is Modern Trade or Quick Commerce AND Customer is Avenue E-Commerce Ltd → Remark = "closed" (overrides VLOOKUP).' },
   { sno:22, col:'Delivered_Qty',            rule:'If Delivered_Qty is blank or missing, set it to 0.' },
 ];
@@ -584,7 +584,7 @@ async function run() {
     const isNow = nor(clientType)==='now';
     const isCat = CAT_GROUP.has(nor(custGroup)); // Category A or Modern Trade
 
-    /* ── CFA (Gurgaon) Origin Override (conditions 19-20) ──────────── */
+    /* ──CFA (GGN) Origin Override (conditions 19-20) ──────────── */
     if (files.cfaGurgaon) {
       const cfaCustOk  = CFA_CUSTOMER_GROUPS.has(nor(custGroup));
       const cfaItemOk  = CFA_ITEM_LIST.has(nor(itemName));
@@ -707,7 +707,7 @@ async function run() {
       'Pending Kgs': pendKgs,
       Boxes: row['Boxes']||'',
       TPT: row['TPT']||'',
-      Origin: origin,  /* may be overridden to CFA (Gurgaon) */
+      Origin: origin,  /* may be overridden toCFA (GGN) */
       Shipping_Address_Name: row['Shipping_Address_Name']||'',
       item_parent: row['item_parent']||'',
       'Case Size': row['Case Size']||'',
