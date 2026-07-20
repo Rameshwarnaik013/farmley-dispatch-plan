@@ -195,7 +195,7 @@ const CONDITIONS = [
   { sno:24, col:'po_expiry_date',          rule:'If customer_group is "Airlines" → po_expiry_date is taken from Delivery_Date column instead of po_expiry_date.' },
   { sno:25, col:'Appt (multi-date)',       rule:'When the Appointments file has multiple dates in one cell (e.g. "1-Jun-26,7-Jun-26"), the entire string is fetched as-is via lookup.' },
   { sno:26, col:'Rea',                     rule:'Rea is looked up from Dispatch Plan_yesterday using CC column match. If found in Yesterday, use that value; otherwise keep Dump value.' },
-  { sno:27, col:'Origin → CFA (BLR)',  rule:'Three conditions, all must be true (customer_group is NOT checked): Condition 1: Item_Name must be in the 75-item CFA (BLR) approved SKU list. Condition 2: Shipping State must be Andhra Pradesh, Karnataka, Kerala, Tamil Nadu, or Telangana. Condition 3: Storage Beyond Sqfeet value > 0, matched on Item_Name against the Item Name column of the CFA Gurgaon Stock file (the same stock file carries Bangalore availability). If all 3 are met → Origin = "CFA (BLR)". Requires the CFA Gurgaon Stock file to be uploaded.' },
+  { sno:27, col:'Origin → CFA (BLR)',  rule:'Four conditions, all must be true: Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa. Condition 2: Item_Name must be in the 75-item CFA (BLR) approved SKU list. Condition 3: Shipping State must be Andhra Pradesh, Karnataka, Kerala, Tamil Nadu, or Telangana. Condition 4: Storage Beyond Sqfeet value > 0, matched on Item_Name against the Item Name column of the CFA Gurgaon Stock file (the same stock file carries Bangalore availability). If all 4 are met → Origin = "CFA (BLR)". Requires the CFA Gurgaon Stock file to be uploaded.' },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -758,13 +758,15 @@ async function run() {
     }
 
     /* ── CONDITION 27: CFA (BLR) Origin Override ──────────────────────
-       Three checks, all must pass (no customer_group gate):
-         1. Item_Name is in the CFA (BLR) approved list
-         2. Shipping State is one of the 5 southern states
-         3. Storage Beyond Sqfeet > 0, looked up by Item_Name from the
+       Four checks, ALL must pass:
+         1. customer_group is Amazon Retail India, Category A, Vending or HoReCa
+         2. Item_Name is in the CFA (BLR) approved list
+         3. Shipping State is one of the 5 southern states
+         4. Storage Beyond Sqfeet > 0, looked up by Item_Name from the
             CFA Gurgaon Stock file (same column serves both warehouses)
        Requires the stock file, same as the CFA (GGN) rule. */
     if (files.cfaGurgaon
+        && CFA_CUSTOMER_GROUPS.has(nor(custGroup))
         && CFA_BLR_ITEM_LIST.has(nor(itemName))
         && CFA_BLR_STATES.has(nor(shipState))
         && (cfaStockMap[nor(itemName)] || 0) > 0) {
