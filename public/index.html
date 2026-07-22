@@ -196,6 +196,7 @@ const CONDITIONS = [
   { sno:25, col:'Appt (multi-date)',       rule:'When the Appointments file has multiple dates in one cell (e.g. "1-Jun-26,7-Jun-26"), the entire string is fetched as-is via lookup.' },
   { sno:26, col:'Rea',                     rule:'Rea is looked up from Dispatch Plan_yesterday using CC column match. If found in Yesterday, use that value; otherwise keep Dump value.' },
   { sno:27, col:'Origin → CFA (BLR)',  rule:'Four conditions, all must be true: Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa. Condition 2: Item_Name must be in the 75-item CFA (BLR) approved SKU list. Condition 3: Shipping State must be Andhra Pradesh, Karnataka, Kerala, Tamil Nadu, or Telangana. Condition 4: Storage Beyond Sqfeet value > 0, matched on Item_Name against the Item Name column of the CFA Gurgaon Stock file (the same stock file carries Bangalore availability). If all 4 are met → Origin = "CFA (BLR)". Requires the CFA Gurgaon Stock file to be uploaded.' },
+  { sno:28, col:'Origin (Quick Commerce / E-Commerce)', rule:'Additive override: if customer_group is Quick Commerce or E-Commerce AND the Branch is one of Indore, Mangalore, Haryana, RPC Purnia, Uttar Pradesh, Purnea, or Tamil Nadu, then Origin is taken from the Branch: Indore→Indore, Mangalore→CFA (BLR), Haryana→CFA (GGN), RPC Purnia→Purnea, Uttar Pradesh→UD Foods, Purnea→Purnea, Tamil Nadu→Rebela. Any other row (including Quick Commerce / E-Commerce with a Branch not in this list) keeps its existing Origin unchanged.' },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -581,6 +582,20 @@ async function run() {
     'telangana','andhra pradesh','karnataka','tamil nadu','kerala'
   ]);
 
+  /* ── CONDITION 28: Quick Commerce / E-Commerce Branch → Origin map ──
+     For these two customer groups only, Origin is taken from the Branch
+     column via this fixed lookup. Keys are lowercased Branch values. */
+  const QC_ECOMM_GROUPS = new Set(['quick commerce','e-commerce']);
+  const QC_BRANCH_ORIGIN = {
+    'indore':        'Indore',
+    'mangalore':     'CFA (BLR)',
+    'haryana':       'CFA (GGN)',
+    'rpc purnia':    'Purnea',
+    'uttar pradesh': 'UD Foods',
+    'purnea':        'Purnea',
+    'tamil nadu':    'Rebela',
+  };
+
   /* ── CONDITION 7: Yesterday Remark map ───────────────────────────────── */
   const yesterMap = {};
   let maxYestNumericRemark = 0;
@@ -771,6 +786,16 @@ async function run() {
         && CFA_BLR_STATES.has(nor(shipState))
         && (cfaStockMap[nor(itemName)] || 0) > 0) {
       origin = 'CFA (BLR)';
+    }
+
+    /* ── CONDITION 28: Quick Commerce / E-Commerce Branch → Origin ─────
+       Additive override: ONLY when customer_group is Quick Commerce or
+       E-Commerce AND the Branch is in QC_BRANCH_ORIGIN, set Origin from
+       the Branch map. Any other row (incl. QC/E-Comm with an unlisted
+       Branch) keeps whatever Origin the previous logic produced. */
+    if (QC_ECOMM_GROUPS.has(nor(custGroup))) {
+      const mappedOrigin = QC_BRANCH_ORIGIN[nor(row[COL.Branch])];
+      if (mappedOrigin !== undefined) origin = mappedOrigin;
     }
 
     /* CONDITION 5: Day from Lead Time */
