@@ -140,9 +140,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
           <div class="preview-meta" id="previewMeta"></div>
         </div>
         <div class="legend">
-          <span style="color:var(--warn)">■</span> Red = EDD &gt; 1 &nbsp;|&nbsp;
-          <span class="tag tag-p1">P1</span> = EDD 0 or 1 &nbsp;|&nbsp;
-          <span class="tag tag-p2">P2</span> = EDD &lt; 0
+          <span style="color:var(--warn)">■</span> Red = EDD &gt; 1
         </div>
       </div>
       <div class="table-wrap">
@@ -184,7 +182,7 @@ const CONDITIONS = [
   { sno:12, col:'EDD',                      rule:'For FK types (FK-Grocery, FK-Hyperlocal, FK-Alpha): EDD = If_Dispatched_EDD − Appt.' },
   { sno:13, col:'EDD',                      rule:'For all other client types (incl. Airlines): EDD = If_Dispatched_EDD − po_expiry_date (both as Excel serial numbers).' },
   { sno:14, col:'EDD',                      rule:'If po_expiry_date is missing AND not FK: EDD = If_Dispatched_EDD (raw serial). If both are missing: EDD is blank.' },
-  { sno:15, col:'Priority',                 rule:'P1 = EDD is 0 or 1. P2 = EDD < 0 (negative). No priority set if EDD > 1 or EDD is blank.' },
+  { sno:15, col:'Priority',                 rule:'CANCELLED — the P1/P2 logic is removed. The Priority column remains in the output but is intentionally left empty.' },
   { sno:16, col:'Red Highlight',            rule:'Highlight row red if EDD > 1 (numeric). Rows where EDD is blank or text are not highlighted.' },
   { sno:17, col:'Merge',                    rule:'Concatenate Sales_Order_No + Branch.' },
   { sno:18, col:'Dispatch_Status',          rule:'If any Origin Status contains Partial Dispatch -> Partial Dispatch. Else if Pending -> Pending. Overrides Dump value.' },
@@ -820,12 +818,8 @@ async function run() {
       else                              edd = Math.round(dispEDDSerial);
     }
 
-    /* CONDITION 15: Priority */
-    let priority = '';
-    if (typeof edd === 'number') {
-      if (edd < 0)              priority = 'P2';
-      else if (edd===0||edd===1) priority = 'P1';
-    }
+    /* CONDITION 15 (CANCELLED): Priority logic removed — column stays empty */
+    const priority = '';
 
     /* CONDITION 16: Red highlight */
     const isRed = typeof edd==='number' && edd > 1;
@@ -928,10 +922,8 @@ async function run() {
 
   renderTable(result);
   const redCount = result.filter(r=>r._red).length;
-  const p1 = result.filter(r=>r.Priority==='P1').length;
-  const p2 = result.filter(r=>r.Priority==='P2').length;
   document.getElementById('previewMeta').textContent =
-    `${result.length} rows · ${redCount} red · P1: ${p1} · P2: ${p2} · ${new Date().toLocaleString()}`;
+    `${result.length} rows · ${redCount} red · ${new Date().toLocaleString()}`;
   document.getElementById('preview').classList.add('visible');
   document.getElementById('exportBtn').style.display='inline-block';
   log(`✓ Done — ${result.length} rows generated`,'ok');
@@ -1084,7 +1076,7 @@ function exportToExcel() {
 
   /* ── Build main sheet with formulas ────────────────────────────────── */
   // First row: write raw values for non-formula columns, placeholders for formula columns
-  const FORMULA_COLS = new Set(['CC','Day','Appt','Remark','If Dispatched, then EDD','EDD','Priority','Merge','Dispatch_Status','Final Dispatch Status']);
+  const FORMULA_COLS = new Set(['CC','Day','Appt','Remark','If Dispatched, then EDD','EDD','Merge','Dispatch_Status','Final Dispatch Status']);
 
   const exportData = outputRows.map(row => {
     const obj = {};
@@ -1143,9 +1135,7 @@ function exportToExcel() {
     const eddAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['EDD']});
     ws[eddAddr] = { t:'n', f:`IF(ISNUMBER(${C('If Dispatched, then EDD')}${r}),IF(OR(${C('client_type')}${r}="FK-Grocery-VS48860",${C('client_type')}${r}="FK-Hyperlocal-VS46867",${C('client_type')}${r}="FK-Alpha-VS46867"),IF(ISNUMBER(${C('Appt')}${r}),${C('If Dispatched, then EDD')}${r}-${C('Appt')}${r},${C('If Dispatched, then EDD')}${r}),IF(ISNUMBER(${C('po_expiry_date')}${r}),${C('If Dispatched, then EDD')}${r}-${C('po_expiry_date')}${r},${C('If Dispatched, then EDD')}${r})),"")`, z:'0' };
 
-    // Priority (Condition 15): P2 if EDD<0, P1 if EDD=0 or 1
-    const prAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Priority']});
-    ws[prAddr] = { t:'s', f:`IF(NOT(ISNUMBER(${C('EDD')}${r})),"",IF(${C('EDD')}${r}<0,"P2",IF(OR(${C('EDD')}${r}=0,${C('EDD')}${r}=1),"P1","")))` };
+    // Priority (Condition 15 cancelled): column intentionally left blank — no formula.
 
     // Final Dispatch Status (Condition 3/18)
     const fdAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Final Dispatch Status']});
