@@ -194,9 +194,10 @@ const CONDITIONS = [
   { sno:23, col:'Origin → Rebela',         rule:'If item_parent is "Munchies Waves" AND Shipping State is "Tamil Nadu" → Origin = "Rebela".' },
   { sno:24, col:'po_expiry_date',          rule:'If customer_group is "Airlines" → po_expiry_date is taken from Delivery_Date column instead of po_expiry_date.' },
   { sno:25, col:'Appt (multi-date)',       rule:'When the Appointments file has multiple dates in one cell (e.g. "1-Jun-26,7-Jun-26"), the entire string is fetched as-is via lookup.' },
-  { sno:26, col:'Rea',                     rule:'Rea is looked up from Dispatch Plan_yesterday using CC column match. If found in Yesterday, use that value; otherwise keep Dump value.' },
+  { sno:26, col:'Rea (origin validation)', rule:'REVISED — the old Yesterday lookup is cancelled. Rea is now TRUE/FALSE origin validation. Expected Origin: item_parent Munchies Waves→Rebela, Makhana Munchies→UD Foods (checked first); else Item_Group Makhana→Purnea, and Cashewnut/Dry Fruit Mix/Almonds/Apricot/Seeds/Raisins/Dates/Walnut/Pistachio/Desserts/Fig/Dried Fruits→Indore. TRUE if Origin equals the expected value, or Origin is CFA (GGN)/CFA (BLR) and that CFA\'s Item_Name + Shipping State checks pass. FALSE otherwise. Blank when no mapping applies and Origin is not CFA.' },
   { sno:27, col:'Origin → CFA (BLR)',  rule:'Three conditions, all must be true (structurally identical to CFA (GGN)): Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa. Condition 2: Item_Name must be in the 75-item CFA (BLR) approved SKU list. Condition 3: Shipping State must be Andhra Pradesh, Karnataka, Kerala, Tamil Nadu, or Telangana. If all 3 are met → Origin = "CFA (BLR)". No stock check and no stock file required.' },
   { sno:28, col:'Origin (Quick Commerce)', rule:'Additive override: if customer_group is Quick Commerce AND the Branch is one of Indore, Mangalore, Haryana, RPC Purnia, Uttar Pradesh, Purnea, or Tamil Nadu, then Origin is taken from the Branch: Indore→Indore, Mangalore→CFA (BLR), Haryana→CFA (GGN), RPC Purnia→Purnea, Uttar Pradesh→UD Foods, Purnea→Purnea, Tamil Nadu→Rebela. E-Commerce is NOT affected. Any other row (including Quick Commerce with a Branch not in this list) keeps its existing Origin unchanged.' },
+  { sno:29, col:'Is CFA',                  rule:'Is CFA = "Yes" when the final Origin starts with "CFA" (CFA (GGN) or CFA (BLR)), else "No". Replaces the value carried over from the Dump.' },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -581,6 +582,29 @@ async function run() {
     'tamil nadu':    'Rebela',
   };
 
+  /* ── CONDITION 26 (REVISED): Rea origin-validation maps ─────────────
+     Expected Origin per row. item_parent is checked first (more specific),
+     then Item_Group. Keys lowercased. */
+  const REA_ITEM_PARENT_ORIGIN = {
+    'munchies waves':  'Rebela',
+    'makhana munchies':'UD Foods',
+  };
+  const REA_ITEM_GROUP_ORIGIN = {
+    'makhana':      'Purnea',
+    'cashewnut':    'Indore',
+    'dry fruit mix':'Indore',
+    'almonds':      'Indore',
+    'apricot':      'Indore',
+    'seeds':        'Indore',
+    'raisins':      'Indore',
+    'dates':        'Indore',
+    'walnut':       'Indore',
+    'pistachio':    'Indore',
+    'desserts':     'Indore',
+    'fig':          'Indore',
+    'dried fruits': 'Indore',
+  };
+
   /* ── CONDITION 7: Yesterday Remark map ───────────────────────────────── */
   const yesterMap = {};
   let maxYestNumericRemark = 0;
@@ -625,27 +649,8 @@ async function run() {
   }
   log(`Yesterday remarks: ${Object.keys(yesterMap).length} CC entries`,'ok');
 
-  /* ── CONDITION 25(B): Yesterday Rea map (CC → Rea) ─────────────────── */
-  const yesterReaMap = {};
-  if (yesterday.length > 0) {
-    const ys = yesterday[0];
-    const yCC = fc(ys, 'CC', 'cc', 'DF:CC');
-    const yRea = fc(ys, 'Rea', 'rea', 'REA');
-    const ySoNo = fc(ys, 'Sales_Order_No', 'Sales Order No', 'sales_order_no');
-    const yItemCode = fc(ys, 'Item_Code', 'Item Code', 'item_code');
-    yesterday.forEach(r => {
-      let reaVal = r[yRea]; if (reaVal===undefined) reaVal=r['Rea']||r['rea']||r['REA']||'';
-      let ccVal = String(r[yCC]||r['DF:CC']||r['CC']||r['cc']||'').trim();
-      if (ccVal && !ccVal.startsWith('#') && ccVal.toLowerCase()!=='na') {
-        yesterReaMap[nor(ccVal)] = reaVal;
-      }
-      const so = String(r[ySoNo]||r['Sales_Order_No']||'').trim();
-      const ic = String(r[yItemCode]||r['Item_Code']||'').trim();
-      if (so && ic) yesterReaMap[nor(so+ic)] = reaVal;
-      if (so) yesterReaMap[nor(so)] = reaVal;
-    });
-  }
-  log(`Yesterday Rea map: ${Object.keys(yesterReaMap).length} entries`,'ok');
+  /* (Condition 26 old behaviour — Rea lookup from Yesterday — is cancelled.
+     Rea is now an origin-validation flag computed per row below.) */
 
   const todaySerial = maxYestNumericRemark > 0
     ? maxYestNumericRemark + 1
@@ -677,6 +682,7 @@ async function run() {
     OriginKgs:    fc(ds,'Origin Kgs','Origin_Kgs','OriginKgs'),
     Customer:     fc(ds,'Customer'),
     ItemParent:   fc(ds,'item_parent','Item Parent','Item_Parent'),
+    ItemGroup:    fc(ds,'Item_Group','Item Group','item_group'),
     DeliveryDate: fc(ds,'Delivery_Date','Delivery Date','delivery_date'),
   };
 
@@ -830,12 +836,28 @@ async function run() {
       remarkRaw = maxYestNumericRemark > 0 ? maxYestNumericRemark : todaySerial;
     }
 
-    /* CONDITION 25(B): Rea lookup from Yesterday via CC */
-    const reaLookup = yesterReaMap[nor(cc)]
-      ?? yesterReaMap[nor(row['DF:CC'])]
-      ?? yesterReaMap[nor(row['CC'])]
-      ?? yesterReaMap[nor(soNo)]
-      ?? '';
+    /* ── CONDITION 26 (REVISED): Rea = origin validation (TRUE/FALSE) ──
+       Expected Origin: item_parent map first (Munchies Waves→Rebela,
+       Makhana Munchies→UD Foods), else Item_Group map (Makhana→Purnea,
+       listed groups→Indore).
+       TRUE  if Origin == expected, or Origin is a CFA whose own
+             Item_Name + Shipping State checks pass for this row.
+       FALSE otherwise. Blank when no mapping applies and Origin is not CFA. */
+    const itemGroup = String(row[COL.ItemGroup] || row['Item_Group'] || '');
+    const itemParentVal = String(row[COL.ItemParent] || row['item_parent'] || '');
+    const expectedOrigin = REA_ITEM_PARENT_ORIGIN[nor(itemParentVal)]
+      ?? REA_ITEM_GROUP_ORIGIN[nor(itemGroup)];
+    let reaValidation = '';
+    if (origin === 'CFA (GGN)') {
+      reaValidation = (CFA_ITEM_LIST.has(nor(itemName)) && CFA_SHIPPING_STATES.has(nor(shipState))) ? 'TRUE' : 'FALSE';
+    } else if (origin === 'CFA (BLR)') {
+      reaValidation = (CFA_BLR_ITEM_LIST.has(nor(itemName)) && CFA_BLR_STATES.has(nor(shipState))) ? 'TRUE' : 'FALSE';
+    } else if (expectedOrigin !== undefined) {
+      reaValidation = (nor(origin) === nor(expectedOrigin)) ? 'TRUE' : 'FALSE';
+    }
+
+    /* CONDITION 1 (NEW): Is CFA = Yes when Origin starts with "CFA" */
+    const isCfaFlag = nor(origin).startsWith('cfa') ? 'Yes' : 'No';
 
     /* CONDITION 10: If Dispatched, then EDD = Remark + Day */
     const remarkSerial = remarkToSerial(remarkRaw);
@@ -893,7 +915,7 @@ async function run() {
       customer_group: custGroup,
       Appt: apptSerial ? fmtD(apptSerial) : (apptText || ''),
       Remark: fmtRemark(),
-      Rea: reaLookup || row['Rea'] || '',
+      Rea: reaValidation,
       Priority: priority,
       'Final Dispatch Status': finalDisp,
       'If Dispatched, then EDD': dispEDDSerial ? fmtD(dispEDDSerial) : '',
@@ -946,7 +968,7 @@ async function run() {
       'Multi GRN': row['Multi GRN']||'',
       Merge: merge,
       'CFA Check': row['CFA Check']||'',
-      'Is CFA': row['Is CFA']||'',
+      'Is CFA': isCfaFlag,
     });
   });
 
@@ -1097,11 +1119,9 @@ function exportToExcel() {
     const yRemark = fc(ys, 'Remark', 'Remarks', 'remark', 'remarks');
     const ySoNo = fc(ys, 'Sales_Order_No', 'Sales Order No', 'sales_order_no');
     const yItemCode = fc(ys, 'Item_Code', 'Item Code', 'item_code');
-    const yRea = fc(ys, 'Rea', 'rea', 'REA');
     refData.yesterday.forEach(r => {
       let ccVal = String(r[yCC]||r['DF:CC']||r['CC']||r['cc']||'').trim();
       let rem = r[yRemark]; if(rem===undefined) rem=r['Remarks']||r['Remark']||r['remark']||'';
-      let reaVal = r[yRea]; if(reaVal===undefined) reaVal=r['Rea']||r['rea']||r['REA']||'';
       // Also build CC from SO+ItemCode if CC is missing
       if (!ccVal || ccVal.startsWith('#')) {
         const so = String(r[ySoNo]||r['Sales_Order_No']||'').trim();
@@ -1110,15 +1130,15 @@ function exportToExcel() {
       }
       if (ccVal) {
         const remarkSerial = remarkToSerial(rem);
-        yestExport.push({ CC: ccVal.toLowerCase(), Remark: remarkSerial!==null ? remarkSerial : (rem||''), Rea: reaVal||'' });
+        yestExport.push({ CC: ccVal.toLowerCase(), Remark: remarkSerial!==null ? remarkSerial : (rem||'') });
       }
     });
   }
-  const wsYest = XLSX.utils.json_to_sheet(yestExport, {header:['CC','Remark','Rea']});
+  const wsYest = XLSX.utils.json_to_sheet(yestExport, {header:['CC','Remark']});
 
   /* ── Build main sheet with formulas ────────────────────────────────── */
   // First row: write raw values for non-formula columns, placeholders for formula columns
-  const FORMULA_COLS = new Set(['CC','Day','Appt','Remark','Rea','If Dispatched, then EDD','EDD','Priority','Merge','Dispatch_Status','Final Dispatch Status']);
+  const FORMULA_COLS = new Set(['CC','Day','Appt','Remark','If Dispatched, then EDD','EDD','Priority','Merge','Dispatch_Status','Final Dispatch Status']);
 
   const exportData = outputRows.map(row => {
     const obj = {};
@@ -1167,9 +1187,7 @@ function exportToExcel() {
     const remAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Remark']});
     ws[remAddr] = { t:'s', f:`IFERROR(VLOOKUP(LOWER(${C('CC')}${r}),Yesterday!A$2:B$${yestRows+1},2,FALSE),"")` };
 
-    // Rea (Condition 25/B): VLOOKUP from Yesterday on CC match (col 3 = Rea)
-    const reaAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Rea']});
-    ws[reaAddr] = { t:'s', f:`IFERROR(VLOOKUP(LOWER(${C('CC')}${r}),Yesterday!A$2:C$${yestRows+1},3,FALSE),"")` };
+    // Rea is a plain computed TRUE/FALSE origin-validation value — no formula.
 
     // If Dispatched, then EDD = Remark + Day (Condition 10)
     const eddDispAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['If Dispatched, then EDD']});
