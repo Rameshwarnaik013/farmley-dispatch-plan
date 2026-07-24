@@ -189,13 +189,13 @@ const CONDITIONS = [
   { sno:17, col:'Merge',                    rule:'Concatenate Sales_Order_No + Branch.' },
   { sno:18, col:'Dispatch_Status',          rule:'If any Origin Status contains Partial Dispatch -> Partial Dispatch. Else if Pending -> Pending. Overrides Dump value.' },
   { sno:19, col:'Origin → CFA (GGN)',   rule:'Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa.' },
-  { sno:20, col:'Origin → CFA (GGN)',   rule:'Three conditions, all must be true: Condition 1 (above): customer_group. Condition 2: Item_Name must be in the 56-item CFA Gurgaon approved SKU list. Condition 3: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 3 are met → Origin = "CFA (GGN)". No stock check and no stock file required.' },
+  { sno:20, col:'Origin → CFA (GGN)',   rule:'Three conditions, all must be true: Condition 1 (above): customer_group. Condition 2: Item_Name must be in the 75-item common CFA SKU list (same list as CFA (BLR); replaced the old 56-item Gurgaon list). Condition 3: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 3 are met → Origin = "CFA (GGN)". No stock check and no stock file required.' },
   { sno:22, col:'Delivered_Qty',            rule:'If Delivered_Qty is blank or missing, set it to 0.' },
   { sno:23, col:'Origin → Rebela',         rule:'If item_parent is "Munchies Waves" AND Shipping State is "Tamil Nadu" → Origin = "Rebela".' },
   { sno:24, col:'po_expiry_date',          rule:'If customer_group is "Airlines" → po_expiry_date is taken from Delivery_Date column instead of po_expiry_date.' },
   { sno:25, col:'Appt (multi-date)',       rule:'When the Appointments file has multiple dates in one cell (e.g. "1-Jun-26,7-Jun-26"), the entire string is fetched as-is via lookup.' },
   { sno:26, col:'Rea (origin validation)', rule:'REVISED — the old Yesterday lookup is cancelled. Rea is now TRUE/FALSE origin validation. Expected Origin: item_parent Munchies Waves→Rebela, Munchies Waves-Airlines→Rebela, Makhana Munchies→UD Foods (checked first); else Item_Group Makhana→Purnea, and Cashewnut/Dry Fruit Mix/Almonds/Apricot/Seeds/Raisins/Dates/Walnut/Pistachio/Desserts/Fig/Dried Fruits/Dry Fruit Combo/Gifting→Indore. TRUE if Origin equals the expected value, or Origin is CFA (GGN)/CFA (BLR) and that CFA\'s Item_Name + Shipping State checks pass. FALSE otherwise. Blank when no mapping applies and Origin is not CFA.' },
-  { sno:27, col:'Origin → CFA (BLR)',  rule:'Three conditions, all must be true (structurally identical to CFA (GGN)): Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa. Condition 2: Item_Name must be in the 75-item CFA (BLR) approved SKU list. Condition 3: Shipping State must be Andhra Pradesh, Karnataka, Kerala, Tamil Nadu, or Telangana. If all 3 are met → Origin = "CFA (BLR)". No stock check and no stock file required.' },
+  { sno:27, col:'Origin → CFA (BLR)',  rule:'Three conditions, all must be true (structurally identical to CFA (GGN)): Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa. Condition 2: Item_Name must be in the 75-item common CFA SKU list (same list as CFA (GGN)). Condition 3: Shipping State must be Andhra Pradesh, Karnataka, Kerala, Tamil Nadu, or Telangana. If all 3 are met → Origin = "CFA (BLR)". No stock check and no stock file required.' },
   { sno:28, col:'Origin (Quick Commerce)', rule:'Additive override: if customer_group is Quick Commerce AND the Branch is one of Indore, Mangalore, Haryana, RPC Purnia, Uttar Pradesh, Purnea, or Tamil Nadu, then Origin is taken from the Branch: Indore→Indore, Mangalore→CFA (BLR), Haryana→CFA (GGN), RPC Purnia→Purnea, Uttar Pradesh→UD Foods, Purnea→Purnea, Tamil Nadu→Rebela. E-Commerce is NOT affected. Any other row (including Quick Commerce with a Branch not in this list) keeps its existing Origin unchanged.' },
   { sno:29, col:'Is CFA',                  rule:'Is CFA = "Yes" when the final Origin starts with "CFA" (CFA (GGN) or CFA (BLR)), else "No". Replaces the value carried over from the Dump.' },
 ];
@@ -424,68 +424,11 @@ async function run() {
     'uttarakhand','uttar pradesh','punjab','delhi','jammu and kashmir',
     'himachal pradesh','haryana','rajasthan','ladakh','chandigarh'
   ]);
-  const CFA_ITEM_LIST = new Set([
-    'apple pie date bite farmley sachet 20 g - single serve',
-    'apple pie date bite farmley tin jar 200g',
-    'assorted date bites farmley box 180g',
-    'choco date bite farmley sachet 20 g - single serve',
-    'choco date bite farmley tin jar 200g',
-    'classic date bites farmley sachet 20 g - single serve',
-    'classic date bites farmley tin jar 200g',
-    'dry fruit mix trail mix farmley pouch 200 g',
-    'farmley almond 200 g',
-    'farmley almond 500g',
-    'farmley almond 1 kg',
-    'farmley apricot 200 g',
-    'farmley california almonds 200 g pouch',
-    'farmley california almonds 500 g pouch',
-    'farmley california almonds 1 kg jar',
-    'farmley cashew 200 g',
-    'farmley cashew 500g',
-    'farmley cashew 1 kg',
-    'farmley cranberries 200 g',
-    'farmley dates 500g',
-    'farmley figs 200 g',
-    'farmley golden raisins 200 g',
-    'farmley green raisins 500 g pouch',
-    'farmley mixed seeds 200g',
-    'farmley peri peri cashews 200 g pouch',
-    'farmley pistachio 200 g',
-    'farmley prime walnut kernels 200 g pouch',
-    'farmley pumpkin seeds 200g',
-    'farmley raisins 200 g',
-    'farmley raisins 500g',
-    'farmley roasted almonds 200 g',
-    'farmley roasted cashews 200 g pouch',
-    'farmley salted almonds 200 g pouch',
-    'farmley seed mix trail mix pouch 200g',
-    'farmley sliced almonds 200 g',
-    'farmley slivered almonds 200 g',
-    'farmley sunflower seeds 200g',
-    'farmley walnut kernels 200 g',
-    'fig date bite farmley sachet 20 g - single serve',
-    'fig date bite farmley tin jar 200g',
-    'luxury date bites farmley box 180g',
-    'mango date bite farmley sachet 20 g - single serve',
-    'mango date bite farmley tin jar 200g',
-    'protein date bite farmley sachet 20 g - single serve',
-    'protein date bite farmley tin jar 200g',
-    'super mix trail mix farmley pouch 200 g',
-    'walnut brownie date bite farmley sachet 20 g - single serve',
-    'walnut brownie date bite farmley tin jar 200g',
-    'farmley berries and seeds trail mix pouch 200 g',
-    'farmley breakfast trail mix pouch 200 g',
-    'farmley chocoberry trail mix pouch 200 g',
-    'farmley energy trail mix pouch 200 g',
-    'farmley fitness trail mix pouch 200 g',
-    'farmley immunity trail mix pouch 200 g',
-    'farmley nutri mix trail mix pouch 200 g',
-    'farmley power trail mix pouch 200 g',
-  ].map(s => s.toLowerCase()));
 
-  /* ── CFA (BLR) constants (Condition 27) ─────────────────────────── */
-  // Item_Name list supplied by the business (sku.xlsx, Condition1).
-  const CFA_BLR_ITEM_LIST = new Set([
+  /* ── Common CFA item list (Conditions 20 & 27) ─────────────────────
+     ONE list of 75 Item_Names shared by BOTH CFA (GGN) and CFA (BLR).
+     (Business-supplied; replaced the old 56-item Gurgaon-only list.) */
+  const CFA_COMMON_ITEM_LIST = new Set([
     'apple pie date bite farmley tin jar 200g',
     'classic date bites farmley sachet 20 g - single serve',
     'dark choco orange date bites farmley sachet 20 g - single serve',
@@ -753,10 +696,10 @@ async function run() {
     /* ── CFA (GGN) Origin Override (conditions 19-20) ──────────────────
        Three checks, ALL must pass (no stock check, no input file):
          1. customer_group is Amazon Retail India, Category A, Vending or HoReCa
-         2. Item_Name is in the 56-item CFA Gurgaon approved list
+         2. Item_Name is in the 75-item common CFA list
          3. Shipping State is one of the 10 north states */
     if (CFA_CUSTOMER_GROUPS.has(nor(custGroup))
-        && CFA_ITEM_LIST.has(nor(itemName))
+        && CFA_COMMON_ITEM_LIST.has(nor(itemName))
         && CFA_SHIPPING_STATES.has(nor(shipState))) {
       origin = 'CFA (GGN)';
     }
@@ -770,10 +713,10 @@ async function run() {
        Three checks, ALL must pass (no stock check, no input file) —
        structurally identical to the CFA (GGN) rule:
          1. customer_group is Amazon Retail India, Category A, Vending or HoReCa
-         2. Item_Name is in the 75-item CFA (BLR) approved list
+         2. Item_Name is in the 75-item common CFA list
          3. Shipping State is one of the 5 southern states */
     if (CFA_CUSTOMER_GROUPS.has(nor(custGroup))
-        && CFA_BLR_ITEM_LIST.has(nor(itemName))
+        && CFA_COMMON_ITEM_LIST.has(nor(itemName))
         && CFA_BLR_STATES.has(nor(shipState))) {
       origin = 'CFA (BLR)';
     }
@@ -852,9 +795,9 @@ async function run() {
       ?? REA_ITEM_GROUP_ORIGIN[nor(itemGroup)];
     let reaValidation = '';
     if (origin === 'CFA (GGN)') {
-      reaValidation = (CFA_ITEM_LIST.has(nor(itemName)) && CFA_SHIPPING_STATES.has(nor(shipState))) ? 'TRUE' : 'FALSE';
+      reaValidation = (CFA_COMMON_ITEM_LIST.has(nor(itemName)) && CFA_SHIPPING_STATES.has(nor(shipState))) ? 'TRUE' : 'FALSE';
     } else if (origin === 'CFA (BLR)') {
-      reaValidation = (CFA_BLR_ITEM_LIST.has(nor(itemName)) && CFA_BLR_STATES.has(nor(shipState))) ? 'TRUE' : 'FALSE';
+      reaValidation = (CFA_COMMON_ITEM_LIST.has(nor(itemName)) && CFA_BLR_STATES.has(nor(shipState))) ? 'TRUE' : 'FALSE';
     } else if (expectedOrigin !== undefined) {
       reaValidation = (nor(origin) === nor(expectedOrigin)) ? 'TRUE' : 'FALSE';
     }
