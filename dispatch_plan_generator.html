@@ -187,13 +187,13 @@ const CONDITIONS = [
   { sno:17, col:'Merge',                    rule:'Concatenate Sales_Order_No + Branch.' },
   { sno:18, col:'Dispatch_Status',          rule:'If any Origin Status contains Partial Dispatch -> Partial Dispatch. Else if Pending -> Pending. Overrides Dump value.' },
   { sno:19, col:'Origin → CFA (GGN)',   rule:'Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa.' },
-  { sno:20, col:'Origin → CFA (GGN)',   rule:'Three conditions, all must be true: Condition 1 (above): customer_group. Condition 2: Item_Name must be in the 75-item common CFA SKU list (same list as CFA (BLR); replaced the old 56-item Gurgaon list). Condition 3: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 3 are met → Origin = "CFA (GGN)". No stock check and no stock file required.' },
+  { sno:20, col:'Origin → CFA (GGN)',   rule:'Three conditions, all must be true: Condition 1 (above): customer_group. Condition 2: Item_Name must be in the 76-item common CFA SKU list (same list as CFA (BLR); replaced the old 56-item Gurgaon list). Condition 3: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 3 are met → Origin = "CFA (GGN)". No stock check and no stock file required.' },
   { sno:22, col:'Delivered_Qty',            rule:'If Delivered_Qty is blank or missing, set it to 0.' },
   { sno:23, col:'Origin → Rebela',         rule:'If item_parent is "Munchies Waves" AND Shipping State is "Tamil Nadu" → Origin = "Rebela".' },
   { sno:24, col:'po_expiry_date',          rule:'If customer_group is "Airlines" → po_expiry_date is taken from Delivery_Date column instead of po_expiry_date.' },
   { sno:25, col:'Appt (multi-date)',       rule:'When the Appointments file has multiple dates in one cell (e.g. "1-Jun-26,7-Jun-26"), the entire string is fetched as-is via lookup.' },
   { sno:26, col:'Rea (origin validation)', rule:'REVISED — the old Yesterday lookup is cancelled. Rea is now TRUE/FALSE origin validation. Expected Origin: item_parent Munchies Waves→Rebela, Munchies Waves-Airlines→Rebela, Makhana Munchies→UD Foods (checked first); else Item_Group Makhana→Purnea, and Cashewnut/Dry Fruit Mix/Almonds/Apricot/Seeds/Raisins/Dates/Walnut/Pistachio/Desserts/Fig/Dried Fruits/Dry Fruit Combo/Gifting→Indore. TRUE if Origin equals the expected value, or Origin is CFA (GGN)/CFA (BLR) and that CFA\'s Item_Name + Shipping State checks pass. FALSE otherwise. Blank when no mapping applies and Origin is not CFA.' },
-  { sno:27, col:'Origin → CFA (BLR)',  rule:'Three conditions, all must be true (structurally identical to CFA (GGN)): Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa. Condition 2: Item_Name must be in the 75-item common CFA SKU list (same list as CFA (GGN)). Condition 3: Shipping State must be Andhra Pradesh, Karnataka, Kerala, Tamil Nadu, or Telangana. If all 3 are met → Origin = "CFA (BLR)". No stock check and no stock file required.' },
+  { sno:27, col:'Origin → CFA (BLR)',  rule:'Three conditions, all must be true (structurally identical to CFA (GGN)): Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa. Condition 2: Item_Name must be in the 76-item common CFA SKU list (same list as CFA (GGN)). Condition 3: Shipping State must be Andhra Pradesh, Karnataka, Kerala, Tamil Nadu, or Telangana. If all 3 are met → Origin = "CFA (BLR)". No stock check and no stock file required.' },
   { sno:28, col:'Origin (Quick Commerce)', rule:'Additive override: if customer_group is Quick Commerce AND the Branch is one of Indore, Mangalore, Haryana, RPC Purnia, Uttar Pradesh, Purnea, or Tamil Nadu, then Origin is taken from the Branch: Indore→Indore, Mangalore→CFA (BLR), Haryana→CFA (GGN), RPC Purnia→Purnea, Uttar Pradesh→UD Foods, Purnea→Purnea, Tamil Nadu→Rebela. E-Commerce is NOT affected. Any other row (including Quick Commerce with a Branch not in this list) keeps its existing Origin unchanged.' },
   { sno:29, col:'Is CFA',                  rule:'Is CFA = "Yes" when the final Origin starts with "CFA" (CFA (GGN) or CFA (BLR)), else "No". Replaces the value carried over from the Dump.' },
 ];
@@ -424,7 +424,7 @@ async function run() {
   ]);
 
   /* ── Common CFA item list (Conditions 20 & 27) ─────────────────────
-     ONE list of 75 Item_Names shared by BOTH CFA (GGN) and CFA (BLR).
+     ONE list of 76 Item_Names shared by BOTH CFA (GGN) and CFA (BLR).
      (Business-supplied; replaced the old 56-item Gurgaon-only list.) */
   const CFA_COMMON_ITEM_LIST = new Set([
     'apple pie date bite farmley tin jar 200g',
@@ -432,6 +432,7 @@ async function run() {
     'dark choco orange date bites farmley sachet 20 g - single serve',
     'apple pie date bite farmley sachet 20 g - single serve',
     'assorted pack farmley 60g dark choco orange date bite 20g, classic date bite 20g, apple pie date bite 20g',
+    'assorted pack farmley 60g- dark choco orange date bite 20g, coffee date bite 20g, classic date bite 20g',
     'coffee rush date bite farmley sachet 20g- single serve',
     'coffee rush date bite farmley tin jar 200g',
     'dark choco-orange date bite farmley tin jar 200g',
