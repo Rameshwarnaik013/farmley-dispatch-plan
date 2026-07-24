@@ -182,7 +182,7 @@ const CONDITIONS = [
   { sno:12, col:'EDD',                      rule:'For FK types (FK-Grocery, FK-Hyperlocal, FK-Alpha): EDD = If_Dispatched_EDD − Appt.' },
   { sno:13, col:'EDD',                      rule:'For all other client types (incl. Airlines): EDD = If_Dispatched_EDD − po_expiry_date (both as Excel serial numbers).' },
   { sno:14, col:'EDD',                      rule:'If po_expiry_date is missing AND not FK: EDD = If_Dispatched_EDD (raw serial). If both are missing: EDD is blank.' },
-  { sno:15, col:'Priority',                 rule:'CANCELLED — the P1/P2 logic is removed. The Priority column remains in the output but is intentionally left empty.' },
+  { sno:15, col:'Priority (Rea reason)',    rule:'REPURPOSED — the old P1/P2 logic remains cancelled. Priority now shows a short reason whenever Rea is FALSE: "Item not listed" (CFA origin but Item_Name not in the 76-item common CFA list), "Wrong state" (CFA origin but Shipping State outside that CFA\'s region), "Item & state" (both fail), or "Expected <origin>" (e.g. Expected Purnea / Indore / Rebela / UD Foods when Origin contradicts the Item Group / Item Parent maps). Empty when Rea is TRUE or blank.' },
   { sno:16, col:'Red Highlight',            rule:'Highlight row red if EDD > 1 (numeric). Rows where EDD is blank or text are not highlighted.' },
   { sno:17, col:'Merge',                    rule:'Concatenate Sales_Order_No + Branch.' },
   { sno:18, col:'Dispatch_Status',          rule:'If any Origin Status contains Partial Dispatch -> Partial Dispatch. Else if Pending -> Pending. Overrides Dump value.' },
@@ -793,12 +793,19 @@ async function run() {
     const expectedOrigin = REA_ITEM_PARENT_ORIGIN[nor(itemParentVal)]
       ?? REA_ITEM_GROUP_ORIGIN[nor(itemGroup)];
     let reaValidation = '';
-    if (origin === 'CFA (GGN)') {
-      reaValidation = (CFA_COMMON_ITEM_LIST.has(nor(itemName)) && CFA_SHIPPING_STATES.has(nor(shipState))) ? 'TRUE' : 'FALSE';
-    } else if (origin === 'CFA (BLR)') {
-      reaValidation = (CFA_COMMON_ITEM_LIST.has(nor(itemName)) && CFA_BLR_STATES.has(nor(shipState))) ? 'TRUE' : 'FALSE';
+    let reaFalseReason = '';   // short reason, shown in Priority when Rea is FALSE
+    if (origin === 'CFA (GGN)' || origin === 'CFA (BLR)') {
+      const itemOk  = CFA_COMMON_ITEM_LIST.has(nor(itemName));
+      const stateOk = origin === 'CFA (GGN)'
+        ? CFA_SHIPPING_STATES.has(nor(shipState))
+        : CFA_BLR_STATES.has(nor(shipState));
+      reaValidation = (itemOk && stateOk) ? 'TRUE' : 'FALSE';
+      if (!itemOk && !stateOk)  reaFalseReason = 'Item & state';
+      else if (!itemOk)         reaFalseReason = 'Item not listed';
+      else if (!stateOk)        reaFalseReason = 'Wrong state';
     } else if (expectedOrigin !== undefined) {
       reaValidation = (nor(origin) === nor(expectedOrigin)) ? 'TRUE' : 'FALSE';
+      if (reaValidation === 'FALSE') reaFalseReason = 'Expected ' + expectedOrigin;
     }
 
     /* CONDITION 1 (NEW): Is CFA = Yes when Origin starts with "CFA" */
@@ -819,8 +826,9 @@ async function run() {
       else                              edd = Math.round(dispEDDSerial);
     }
 
-    /* CONDITION 15 (CANCELLED): Priority logic removed — column stays empty */
-    const priority = '';
+    /* CONDITION 15 (REPURPOSED): Priority = short reason when Rea is FALSE,
+       empty otherwise. (The old P1/P2 logic remains cancelled.) */
+    const priority = reaFalseReason;
 
     /* CONDITION 16: Red highlight */
     const isRed = typeof edd==='number' && edd > 1;
