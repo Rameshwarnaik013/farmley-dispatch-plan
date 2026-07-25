@@ -109,7 +109,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-07-24.2</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-07-24.3</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload each source tab as a separate Excel file → generates today's Dispatch Plan output</p>
   </header>
@@ -202,10 +202,10 @@ const CONDITIONS = [
    UPLOAD CARDS
 ═══════════════════════════════════════════════════════════════════════════ */
 const CARDS = [
-  { key:'dump',         name:'Dump',                    desc:'Master sales order data',     icon:'📦' },
-  { key:'leadtime',     name:'LEAD TIME',               desc:'Origin × State → Days',       icon:'🗓'  },
-  { key:'appointments', name:'Appointments',            desc:'PO-No → Appointment dates',   icon:'📅' },
-  { key:'yesterday',    name:'Dispatch Plan_yesterday', desc:'Previous day plan (remarks)',  icon:'📋' },
+  { key:'dump',         name:'Dump',                    desc:'Master sales order data (required)',      icon:'📦' },
+  { key:'leadtime',     name:'LEAD TIME',               desc:'Origin × State → Days (optional)',        icon:'🗓'  },
+  { key:'appointments', name:'Appointments',            desc:'PO-No → Appointment dates (optional)',    icon:'📅' },
+  { key:'yesterday',    name:'Dispatch Plan_yesterday', desc:'Previous day plan, remarks (optional)',   icon:'📋' },
 ];
 
 const grid = document.getElementById('uploadGrid');
@@ -255,8 +255,9 @@ function handleFile(key, input) {
   document.getElementById('status-'+key).textContent = '✓ '+f.name;
   document.getElementById('status-'+key).className = 'card-status ok';
   document.getElementById('card-'+key).classList.add('loaded');
-  document.getElementById('generateBtn').disabled =
-    !(files.dump && files.leadtime && files.appointments && files.yesterday);
+  // Only Dump is mandatory — the other inputs are optional (missing ones
+  // behave as empty: Day=0, no Appt lookup, no Remark carry-over).
+  document.getElementById('generateBtn').disabled = !files.dump;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -346,16 +347,23 @@ async function generate() {
 
 async function run() {
   log('Reading uploaded files...','info');
+  // Dump is required; the other three are optional and default to empty.
   const [dWB,ltWB,apWB,yWB] = await Promise.all([
-    readWB(files.dump), readWB(files.leadtime), readWB(files.appointments), readWB(files.yesterday)
+    readWB(files.dump),
+    files.leadtime     ? readWB(files.leadtime)     : null,
+    files.appointments ? readWB(files.appointments) : null,
+    files.yesterday    ? readWB(files.yesterday)    : null
   ]);
 
   const dump      = sheet2json(dWB, 0);
-  const ltData    = sheet2json(ltWB, 0);
-  const apptData  = sheet2json(apWB, 0);
-  const yesterday = sheet2json(yWB, 0);
+  const ltData    = ltWB ? sheet2json(ltWB, 0) : [];
+  const apptData  = apWB ? sheet2json(apWB, 0) : [];
+  const yesterday = yWB  ? sheet2json(yWB, 0)  : [];
 
   log(`Dump: ${dump.length} rows | Lead Time: ${ltData.length} | Appointments: ${apptData.length} | Yesterday: ${yesterday.length}`,'ok');
+  if (!ltData.length)    log('LEAD TIME not uploaded — Day defaults to 0','info');
+  if (!apptData.length)  log('Appointments not uploaded — Appt blank for FK rows','info');
+  if (!yesterday.length) log('Dispatch Plan_yesterday not uploaded — no Remark carry-over','info');
 
   // Store reference data globally for formula-based export
   refData.leadtime = ltData;
