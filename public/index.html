@@ -109,7 +109,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-07-24.3</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.1</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload each source tab as a separate Excel file → generates today's Dispatch Plan output</p>
   </header>
@@ -182,18 +182,18 @@ const CONDITIONS = [
   { sno:12, col:'EDD',                      rule:'For FK types (FK-Grocery, FK-Hyperlocal, FK-Alpha): EDD = If_Dispatched_EDD − Appt.' },
   { sno:13, col:'EDD',                      rule:'For all other client types (incl. Airlines): EDD = If_Dispatched_EDD − po_expiry_date (both as Excel serial numbers).' },
   { sno:14, col:'EDD',                      rule:'If po_expiry_date is missing AND not FK: EDD = If_Dispatched_EDD (raw serial). If both are missing: EDD is blank.' },
-  { sno:15, col:'Priority (Rea reason)',    rule:'REPURPOSED — the old P1/P2 logic remains cancelled. Priority now shows a short reason whenever Rea is FALSE: "Item not listed" (CFA origin but Item_Name not in the 76-item common CFA list), "Wrong state" (CFA origin but Shipping State outside that CFA\'s region), "Item & state" (both fail), or "Expected <origin>" (e.g. Expected Purnea / Indore / Rebela / UD Foods when Origin contradicts the Item Group / Item Parent maps). Empty when Rea is TRUE or blank.' },
+  { sno:15, col:'Priority (Rea reason)',    rule:'REPURPOSED — the old P1/P2 logic remains cancelled. Priority now shows a short reason whenever Rea is FALSE: "Item not listed" (CFA origin but Item_Code not in the 75-code common CFA list), "Wrong state" (CFA origin but Shipping State outside that CFA\'s region), "Item & state" (both fail), or "Expected <origin>" (e.g. Expected Purnea / Indore / Rebela / UD Foods when Origin contradicts the Item Group / Item Parent maps). Empty when Rea is TRUE or blank.' },
   { sno:16, col:'Red Highlight',            rule:'Highlight row red if EDD > 1 (numeric). Rows where EDD is blank or text are not highlighted.' },
   { sno:17, col:'Merge',                    rule:'Concatenate Sales_Order_No + Branch.' },
   { sno:18, col:'Dispatch_Status',          rule:'If any Origin Status contains Partial Dispatch -> Partial Dispatch. Else if Pending -> Pending. Overrides Dump value.' },
   { sno:19, col:'Origin → CFA (GGN)',   rule:'Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa.' },
-  { sno:20, col:'Origin → CFA (GGN)',   rule:'Three conditions, all must be true: Condition 1 (above): customer_group. Condition 2: Item_Name must be in the 76-item common CFA SKU list (same list as CFA (BLR); replaced the old 56-item Gurgaon list). Condition 3: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 3 are met → Origin = "CFA (GGN)". No stock check and no stock file required.' },
+  { sno:20, col:'Origin → CFA (GGN)',   rule:'Three conditions, all must be true: Condition 1 (above): customer_group. Condition 2: Item_Code must be in the 75-code common CFA SKU list (same list as CFA (BLR); validation is on Item_Code, not Item_Name). Condition 3: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 3 are met → Origin = "CFA (GGN)". No stock check and no stock file required.' },
   { sno:22, col:'Delivered_Qty',            rule:'If Delivered_Qty is blank or missing, set it to 0.' },
   { sno:23, col:'Origin → Rebela',         rule:'If item_parent is "Munchies Waves" AND Shipping State is "Tamil Nadu" → Origin = "Rebela".' },
   { sno:24, col:'po_expiry_date',          rule:'If customer_group is "Airlines" → po_expiry_date is taken from Delivery_Date column instead of po_expiry_date.' },
   { sno:25, col:'Appt (multi-date)',       rule:'When the Appointments file has multiple dates in one cell (e.g. "1-Jun-26,7-Jun-26"), the entire string is fetched as-is via lookup.' },
-  { sno:26, col:'Rea (origin validation)', rule:'REVISED — the old Yesterday lookup is cancelled. Rea is now TRUE/FALSE origin validation. Expected Origin: item_parent Munchies Waves→Rebela, Munchies Waves-Airlines→Rebela, Makhana Munchies→UD Foods (checked first); else Item_Group Makhana→Purnea, and Cashewnut/Dry Fruit Mix/Almonds/Apricot/Seeds/Raisins/Dates/Walnut/Pistachio/Desserts/Fig/Dried Fruits/Dry Fruit Combo/Gifting→Indore. TRUE if Origin equals the expected value, or Origin is CFA (GGN)/CFA (BLR) and that CFA\'s Item_Name + Shipping State checks pass. FALSE otherwise. Blank when no mapping applies and Origin is not CFA.' },
-  { sno:27, col:'Origin → CFA (BLR)',  rule:'Three conditions, all must be true (structurally identical to CFA (GGN)): Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa. Condition 2: Item_Name must be in the 76-item common CFA SKU list (same list as CFA (GGN)). Condition 3: Shipping State must be Andhra Pradesh, Karnataka, Kerala, Tamil Nadu, or Telangana. If all 3 are met → Origin = "CFA (BLR)". No stock check and no stock file required.' },
+  { sno:26, col:'Rea (origin validation)', rule:'REVISED — the old Yesterday lookup is cancelled. Rea is now TRUE/FALSE origin validation. Expected Origin: item_parent Munchies Waves→Rebela, Munchies Waves-Airlines→Rebela, Makhana Munchies→UD Foods (checked first); else Item_Group Makhana→Purnea, and Cashewnut/Dry Fruit Mix/Almonds/Apricot/Seeds/Raisins/Dates/Walnut/Pistachio/Desserts/Fig/Dried Fruits/Dry Fruit Combo/Gifting→Indore. TRUE if Origin equals the expected value, or Origin is CFA (GGN)/CFA (BLR) and that CFA\'s Item_Code + Shipping State checks pass. FALSE otherwise. Blank when no mapping applies and Origin is not CFA.' },
+  { sno:27, col:'Origin → CFA (BLR)',  rule:'Three conditions, all must be true (structurally identical to CFA (GGN)): Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa. Condition 2: Item_Code must be in the 75-code common CFA SKU list (same list as CFA (GGN); validation is on Item_Code, not Item_Name). Condition 3: Shipping State must be Andhra Pradesh, Karnataka, Kerala, Tamil Nadu, or Telangana. If all 3 are met → Origin = "CFA (BLR)". No stock check and no stock file required.' },
   { sno:28, col:'Origin (Quick Commerce)', rule:'Additive override: if customer_group is Quick Commerce AND the Branch is one of Indore, Mangalore, Haryana, RPC Purnia, Uttar Pradesh, Purnea, or Tamil Nadu, then Origin is taken from the Branch: Indore→Indore, Mangalore→CFA (BLR), Haryana→CFA (GGN), RPC Purnia→Purnea, Uttar Pradesh→UD Foods, Purnea→Purnea, Tamil Nadu→Rebela. E-Commerce is NOT affected. Any other row (including Quick Commerce with a Branch not in this list) keeps its existing Origin unchanged.' },
   { sno:29, col:'Is CFA',                  rule:'Is CFA = "Yes" when the final Origin starts with "CFA" (CFA (GGN) or CFA (BLR)), else "No". Replaces the value carried over from the Dump.' },
 ];
@@ -431,86 +431,86 @@ async function run() {
     'himachal pradesh','haryana','rajasthan','ladakh','chandigarh'
   ]);
 
-  /* ── Common CFA item list (Conditions 20 & 27) ─────────────────────
-     ONE list of 76 Item_Names shared by BOTH CFA (GGN) and CFA (BLR).
-     (Business-supplied; replaced the old 56-item Gurgaon-only list.) */
-  const CFA_COMMON_ITEM_LIST = new Set([
-    'apple pie date bite farmley tin jar 200g',
-    'classic date bites farmley sachet 20 g - single serve',
-    'dark choco orange date bites farmley sachet 20 g - single serve',
-    'apple pie date bite farmley sachet 20 g - single serve',
-    'assorted pack farmley 60g dark choco orange date bite 20g, classic date bite 20g, apple pie date bite 20g',
-    'assorted pack farmley 60g- dark choco orange date bite 20g, coffee date bite 20g, classic date bite 20g',
-    'coffee rush date bite farmley sachet 20g- single serve',
-    'coffee rush date bite farmley tin jar 200g',
-    'dark choco-orange date bite farmley tin jar 200g',
-    'classic date bites farmley tin jar 200 g',
-    'trail mix farmley standee pouch 200 g',
-    'seed mix farmley standee pouch 200 g',
-    'berry mix farmley standee pouch 200 g',
-    'premium panchmeva farmley jar 425 g- institutional',
-    'premium panchmeva farmley jar 405 g',
-    'premium panchmeva farmley pillow pouch 21g (in srp 8 pcs each)',
-    'mexican peri peri snack mix farmley pillow pouch 21g (in srp 8 pcs each)',
-    'premium panchmeva farmley standee pouch 160g',
-    'premium panchmeva farmley pillow pouch 21 g - pack of 10 (ladi)',
-    'mexican peri peri snack mix farmley 21g - pack of 10 (ladi)',
-    'sweet and salty mix farmley pillow pouch 23g- ladi (pack of 10)',
-    'premium panchmeva farmley pillow pouch 30g- single serve',
-    'mexican peri-peri snack mix farmley pillow pouch 35 g- single serve',
-    'mexican peri peri snack mix farmley composite jar 325 g',
-    'trail mix farmley composite jar 325 g',
-    'roasted & flavored makhana -cheddar cheese farmley composite jar 77 g',
-    'roasted & flavored makhana - mint farmley composite jar 77 g',
-    'roasted & flavored makhana - black pepper farmley composite jar 77 g',
-    'roasted & flavored makhana - achaari farmley composite jar 77 g',
-    'roasted & flavored makhana - peri peri farmley composite jar 77 g',
-    'roasted & salted makhana farmley composite jar 77 g',
-    'roasted & flavored makhana - tangy tomato farmley composite jar 77 g',
-    'roasted & flavored makhana -cream and onion farmley composite jar 77 g',
-    'roasted & flavoured peri peri makhana farmley jar 55 g',
-    'roasted & flavoured minty pudina makhana farmley jar 55 g',
-    'roasted & salted makhana farmley jar 55 g',
-    'roasted & flavoured cream & onion makhana farmley jar 55 g',
-    'roasted & flavoured tangy tomato makhana farmley jar 55 g',
-    'roasted & flavoured achaari makhana farmley jar 55 g',
-    'roasted & flavoured cheddar cheese makhana farmley jar 55 g',
-    'roasted & flavoured salt & pepper makhana farmley jar 55 g',
-    'roasted & flavored makhana - peri peri farmley pillow pouch 14 g-ladi',
-    'roasted & flavoured makhana - cream & onion farmley pillow pouch 14g-ladi',
-    'roasted & flavoured makhana - tangy tomato farmley pillow pouch 14g-ladi',
-    'roasted & flavoured makhana - achaari farmley pillow pouch 14g-ladi',
-    'prasadam makhana center seal pouch 100 g- new',
-    'prasadam makhana farmley center seal pouch 60g-new',
-    'prasadam makhana center seal pouch 200 g- new',
-    'roasted & flavoured makhana - lemon chilli farmley composite jar 55g',
-    'roasted & flavoured makhana - lemon chilli farmley composite jar 77 g',
-    'prasadam makhana farmley center seal pouch 180 g',
-    'roasted & flavored makhana- cheesy cheddar 20g',
-    'roasted & flavored makhana-lemon chilli 20g',
-    'roasted & flavored makhana-minty pudina 20g',
-    'roasted & flavored makhana - tangy tomato farmley pillow pouch 20 g',
-    'roasted & flavored makhana - cream & onion farmley pillow pouch 20 g',
-    'roasted & flavored makhana - peri peri farmley pillow pouch 20 g',
-    'roasted & flavored makhana - achaari farmley pillow pouch 20 g',
-    'roasted & salted makhana farmley pillow pouch 20 g',
-    'sweet and salty mix farmley pillow pouch 23g (in srp 8 pcs each)',
-    'premium watermelon seeds farmley standee pouch 100 gms',
-    'roasted & salted pumpkin seeds pillow pouch farmley 24 g- single serve',
-    'chia seeds farmley standee pouch 250 g',
-    'sunflower seeds farmley standee pouch 250 g',
-    'pumpkin seeds farmley standee pouch 250 g',
-    'premium chia seeds farmley standee pouch 200 g',
-    'premium jumbo pumpkin seeds farmley standee pouch 200 g',
-    'premium sunflower seeds farmley standee pouch 200 g',
-    'premium flax seeds farmley standee pouch 200 g',
-    'quinoa seeds farmley standee pouch 500g',
-    'basil seeds farmley standee pouch 300g',
-    'salted pumpkin seeds pillow pouch farmley 24 g (in srp 8 pcs each)',
-    'salted pumpkin seeds pillow pouch farmley 24g-ladi',
-    'roasted & flavoured makhana - black salt farmley composite jar 55g',
-    'classic date bites farmley monocarton 240 g - pack of 12 (20 g each)',
-    'dark choco-orange date bites monocarton 240 g - pack of 12 (20 g each)',
+  /* ── Common CFA item code list (Conditions 20 & 27) ───────────────
+     ONE list of 75 Item_Codes shared by BOTH CFA (GGN) and CFA (BLR).
+     Business-supplied (sku (6).xlsx). Matching is on Item_Code, not
+     Item_Name. */
+  const CFA_COMMON_ITEM_CODES = new Set([
+    'dates_04-30057',
+    'dates_15-30109',
+    'dates_15-30110',
+    'dates_15-30111',
+    'dates_15-30144',
+    'dates_4-20161',
+    'dates_4-20162',
+    'dates_4-30101',
+    'dates_4-30567',
+    'dry fruit mix_15-2402',
+    'dry fruit mix_15-2403',
+    'dry fruit mix_15-2404',
+    'dry fruit mix_15-2800',
+    'dry fruit mix_15-2801',
+    'dry fruit mix_15-2856',
+    'dry fruit mix_15-2858',
+    'dry fruit mix_15-2880',
+    'dry fruit mix_15-2950',
+    'dry fruit mix_15-2951',
+    'dry fruit mix_15-30141',
+    'dry fruit mix_15-30155',
+    'dry fruit mix_15-30158',
+    'dry fruit mix_15-30159',
+    'dry fruit mix_15-30160',
+    'makhana_7-2979',
+    'makhana_7-2980',
+    'makhana_7-2981',
+    'makhana_7-2982',
+    'makhana_7-2983',
+    'makhana_7-2984',
+    'makhana_7-2985',
+    'makhana_7-2986',
+    'makhana_7-2992',
+    'makhana_7-2993',
+    'makhana_7-2994',
+    'makhana_7-2995',
+    'makhana_7-2996',
+    'makhana_7-2997',
+    'makhana_7-2998',
+    'makhana_7-2999',
+    'makhana_7-30073',
+    'makhana_7-30074',
+    'makhana_7-30075',
+    'makhana_7-30079',
+    'makhana_7-30096',
+    'makhana_7-30097',
+    'makhana_7-30098',
+    'makhana_7-30135',
+    'makhana_7-30136',
+    'makhana_7-30140',
+    'makhana_7-30146',
+    'makhana_7-30147',
+    'makhana_7-30149',
+    'makhana_7-30151',
+    'makhana_7-30152',
+    'makhana_7-30153',
+    'makhana_7-30154',
+    'makhana_7-30155',
+    'dry fruit mix_15-30135',
+    'seeds_11-20155',
+    'seeds_11-20160',
+    'seeds_11-20161',
+    'seeds_11-20162',
+    'seeds_11-20163',
+    'seeds_11-2541',
+    'seeds_11-2542',
+    'seeds_11-2549',
+    'seeds_11-2550',
+    'seeds_11-2868',
+    'seeds_11-2932',
+    'seeds_11-30135',
+    'seeds_11-30142',
+    'makhana_7-30190',
+    'dates_4-2566',
+    'dates_4-30106',
   ].map(s => s.toLowerCase()));
   const CFA_BLR_STATES = new Set([
     'telangana','andhra pradesh','karnataka','tamil nadu','kerala'
@@ -703,10 +703,10 @@ async function run() {
     /* ── CFA (GGN) Origin Override (conditions 19-20) ──────────────────
        Three checks, ALL must pass (no stock check, no input file):
          1. customer_group is Amazon Retail India, Category A, Vending or HoReCa
-         2. Item_Name is in the 75-item common CFA list
+         2. Item_Code is in the 75-code common CFA list
          3. Shipping State is one of the 10 north states */
     if (CFA_CUSTOMER_GROUPS.has(nor(custGroup))
-        && CFA_COMMON_ITEM_LIST.has(nor(itemName))
+        && CFA_COMMON_ITEM_CODES.has(nor(itemCode))
         && CFA_SHIPPING_STATES.has(nor(shipState))) {
       origin = 'CFA (GGN)';
     }
@@ -720,10 +720,10 @@ async function run() {
        Three checks, ALL must pass (no stock check, no input file) —
        structurally identical to the CFA (GGN) rule:
          1. customer_group is Amazon Retail India, Category A, Vending or HoReCa
-         2. Item_Name is in the 75-item common CFA list
+         2. Item_Code is in the 75-code common CFA list
          3. Shipping State is one of the 5 southern states */
     if (CFA_CUSTOMER_GROUPS.has(nor(custGroup))
-        && CFA_COMMON_ITEM_LIST.has(nor(itemName))
+        && CFA_COMMON_ITEM_CODES.has(nor(itemCode))
         && CFA_BLR_STATES.has(nor(shipState))) {
       origin = 'CFA (BLR)';
     }
@@ -803,7 +803,7 @@ async function run() {
     let reaValidation = '';
     let reaFalseReason = '';   // short reason, shown in Priority when Rea is FALSE
     if (origin === 'CFA (GGN)' || origin === 'CFA (BLR)') {
-      const itemOk  = CFA_COMMON_ITEM_LIST.has(nor(itemName));
+      const itemOk  = CFA_COMMON_ITEM_CODES.has(nor(itemCode));
       const stateOk = origin === 'CFA (GGN)'
         ? CFA_SHIPPING_STATES.has(nor(shipState))
         : CFA_BLR_STATES.has(nor(shipState));
