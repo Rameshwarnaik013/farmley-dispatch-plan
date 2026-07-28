@@ -109,7 +109,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.2</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.3</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload each source tab as a separate Excel file → generates today's Dispatch Plan output</p>
   </header>
@@ -196,6 +196,7 @@ const CONDITIONS = [
   { sno:27, col:'Origin → CFA (BLR)',  rule:'Three conditions, all must be true (structurally identical to CFA (GGN)): Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa. Condition 2: Item_Code must be in the 76-code common CFA SKU list (same list as CFA (GGN); validation is on Item_Code, not Item_Name). Condition 3: Shipping State must be Andhra Pradesh, Karnataka, Kerala, Tamil Nadu, or Telangana. If all 3 are met → Origin = "CFA (BLR)". No stock check and no stock file required.' },
   { sno:28, col:'Origin (Quick Commerce)', rule:'Additive override: if customer_group is Quick Commerce AND the Branch is one of Indore, Mangalore, Haryana, RPC Purnia, Uttar Pradesh, Purnea, or Tamil Nadu, then Origin is taken from the Branch: Indore→Indore, Mangalore→CFA (BLR), Haryana→CFA (GGN), RPC Purnia→Purnea, Uttar Pradesh→UD Foods, Purnea→Purnea, Tamil Nadu→Rebela. E-Commerce is NOT affected. Any other row (including Quick Commerce with a Branch not in this list) keeps its existing Origin unchanged.' },
   { sno:29, col:'Is CFA',                  rule:'Is CFA = "Yes" when the final Origin starts with "CFA" (CFA (GGN) or CFA (BLR)), else "No". Replaces the value carried over from the Dump.' },
+  { sno:30, col:'CFA Serviceability Check', rule:'Separate from Is CFA and applied to ALL customer groups — reports whether any CFA could service the row. If Item_Code is in the 76-code common CFA list AND Shipping State is CFA-serviceable, returns "Yes, CFA GGN" (Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh) or "Yes, CFA BLR" (Telangana, Andhra Pradesh, Karnataka, Tamil Nadu, Kerala). Otherwise — item not listed or state not serviceable — returns "No, <Origin>" with the Origin value taken verbatim (e.g. "No, Indore"). Future CFAs follow the same "Yes, <CFA Name>" format.' },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -517,6 +518,14 @@ async function run() {
     'telangana','andhra pradesh','karnataka','tamil nadu','kerala'
   ]);
 
+  /* ── CFA serviceable areas (Condition 30) ──────────────────────────
+     Drives the "CFA Serviceability Check" column. To add a future CFA,
+     append one entry — the column then yields "Yes, <label>". */
+  const CFA_SERVICE_AREAS = [
+    { label: 'CFA GGN', states: CFA_SHIPPING_STATES },
+    { label: 'CFA BLR', states: CFA_BLR_STATES },
+  ];
+
   /* ── CONDITION 28: Quick Commerce Branch → Origin map ──────────────
      For customer_group Quick Commerce ONLY, Origin is taken from the
      Branch column via this fixed lookup. Keys are lowercased Branch
@@ -820,6 +829,21 @@ async function run() {
     /* CONDITION 1 (NEW): Is CFA = Yes when Origin starts with "CFA" */
     const isCfaFlag = nor(origin).startsWith('cfa') ? 'Yes' : 'No';
 
+    /* ── CONDITION 30: CFA Serviceability Check ────────────────────────
+       Independent of customer_group and of Is CFA — reports whether ANY
+       CFA could service this row: Item_Code in the common CFA list AND
+       Shipping State in that CFA's serviceable states.
+         match  -> "Yes, <CFA label>"
+         no match -> "No, <Origin>" (Origin taken verbatim). */
+    let cfaServiceability = '';
+    {
+      const codeListed = CFA_COMMON_ITEM_CODES.has(nor(itemCode));
+      const area = codeListed
+        ? CFA_SERVICE_AREAS.find(a => a.states.has(nor(shipState)))
+        : null;
+      cfaServiceability = area ? `Yes, ${area.label}` : `No, ${origin}`;
+    }
+
     /* CONDITION 10: If Dispatched, then EDD = Remark + Day */
     const remarkSerial = remarkToSerial(remarkRaw);
     let dispEDDSerial = null;
@@ -927,6 +951,7 @@ async function run() {
       Merge: merge,
       'CFA Check': row['CFA Check']||'',
       'Is CFA': isCfaFlag,
+      'CFA Serviceability Check': cfaServiceability,
     });
   });
 
@@ -954,7 +979,8 @@ const PREVIEW_COLS = [
   'CC','Sales_Order_No','Sales_Order_Date','Po_No','po_expiry_date',
   'customer_group','client_type','Appt','Remark','Priority',
   'Final Dispatch Status','Dispatch_Status','If Dispatched, then EDD','EDD',
-  'Pending Kgs','Origin','Shipping State','Day','Customer','Item_Code','Branch'
+  'Pending Kgs','Origin','Shipping State','Day','Customer','Item_Code','Branch',
+  'Rea','Is CFA','CFA Serviceability Check'
 ];
 
 function renderTable(rows) {
@@ -993,7 +1019,7 @@ const EXPORT_COLS = [
   'New MIS ITEM Group','Branch','Dispatch_Status','Origin_Indore_Status',
   'Origin_Purnea_Status','Origin_UD_Foods_Status','DATE(tso.sales_order_confirmation_date)',
   'owner','Workflow_State','purpose','Sales_Order_Status','Delivery_Date','Multi GRN',
-  'Merge','CFA Check','Is CFA'
+  'Merge','CFA Check','Is CFA','CFA Serviceability Check'
 ];
 
 const DATE_COLS = new Set(['Sales_Order_Date','po_expiry_date','Appt','Remark','If Dispatched, then EDD','Delivery_Date','DATE(tso.sales_order_confirmation_date)']);
