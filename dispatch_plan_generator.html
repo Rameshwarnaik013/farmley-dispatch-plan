@@ -109,7 +109,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.6</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.7</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload each source tab as a separate Excel file → generates today's Dispatch Plan output</p>
   </header>
@@ -186,15 +186,15 @@ const CONDITIONS = [
   { sno:16, col:'Red Highlight',            rule:'Highlight row red if EDD > 1 (numeric). Rows where EDD is blank or text are not highlighted.' },
   { sno:17, col:'Merge',                    rule:'Concatenate Sales_Order_No + Branch.' },
   { sno:18, col:'Dispatch_Status',          rule:'If any Origin Status contains Partial Dispatch -> Partial Dispatch. Else if Pending -> Pending. Overrides Dump value.' },
-  { sno:19, col:'Origin → CFA GGN',   rule:'Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa.' },
-  { sno:20, col:'Origin → CFA GGN',   rule:'Three conditions, all must be true: Condition 1 (above): customer_group. Condition 2: Item_Code must be in the 76-code common CFA SKU list (same list as CFA BLR; validation is on Item_Code, not Item_Name). Condition 3: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 3 are met → Origin = "CFA GGN". No stock check and no stock file required.' },
+  { sno:19, col:'Origin → CFA (GGN)',   rule:'Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa.' },
+  { sno:20, col:'Origin → CFA (GGN)',   rule:'Three conditions, all must be true: Condition 1 (above): customer_group. Condition 2: Item_Code must be in the 76-code common CFA SKU list (same list as CFA (BLR); validation is on Item_Code, not Item_Name). Condition 3: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 3 are met → Origin = "CFA (GGN)". No stock check and no stock file required.' },
   { sno:22, col:'Delivered_Qty',            rule:'If Delivered_Qty is blank or missing, set it to 0.' },
   { sno:23, col:'Origin → Rebela',         rule:'If item_parent is "Munchies Waves" AND Shipping State is "Tamil Nadu" → Origin = "Rebela".' },
   { sno:24, col:'po_expiry_date',          rule:'If customer_group is "Airlines" → po_expiry_date is taken from Delivery_Date column instead of po_expiry_date.' },
   { sno:25, col:'Appt (multi-date)',       rule:'When the Appointments file has multiple dates in one cell (e.g. "1-Jun-26,7-Jun-26"), the entire string is fetched as-is via lookup.' },
-  { sno:26, col:'Rea (origin validation)', rule:'REVISED — the old Yesterday lookup is cancelled. Rea is now TRUE/FALSE origin validation. Expected Origin: item_parent Munchies Waves→Rebela, Munchies Waves-Airlines→Rebela, Makhana Munchies→UD Foods (checked first); else Item_Group Makhana→Purnea, and Cashewnut/Dry Fruit Mix/Almonds/Apricot/Seeds/Raisins/Dates/Walnut/Pistachio/Desserts/Fig/Dried Fruits/Dry Fruit Combo/Gifting→Indore. TRUE if Origin equals the expected value, or Origin is CFA GGN/CFA BLR and that CFA\'s Item_Code + Shipping State checks pass. FALSE otherwise. Blank when no mapping applies and Origin is not CFA.' },
-  { sno:27, col:'Origin → CFA BLR',  rule:'Three conditions, all must be true (structurally identical to CFA GGN): Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa. Condition 2: Item_Code must be in the 76-code common CFA SKU list (same list as CFA GGN; validation is on Item_Code, not Item_Name). Condition 3: Shipping State must be Andhra Pradesh, Karnataka, Kerala, Tamil Nadu, or Telangana. If all 3 are met → Origin = "CFA BLR". No stock check and no stock file required.' },
-  { sno:28, col:'Origin (Quick Commerce)', rule:'Additive override: if customer_group is Quick Commerce AND the Branch is one of Indore, Mangalore, Haryana, RPC Purnia, Uttar Pradesh, Purnea, or Tamil Nadu, then Origin is taken from the Branch: Indore→Indore, Mangalore→CFA BLR, Haryana→CFA GGN, RPC Purnia→Purnea, Uttar Pradesh→UD Foods, Purnea→Purnea, Tamil Nadu→Rebela. E-Commerce is NOT affected. Any other row (including Quick Commerce with a Branch not in this list) keeps its existing Origin unchanged.' },
+  { sno:26, col:'Rea (origin validation)', rule:'REVISED — the old Yesterday lookup is cancelled. Rea is now TRUE/FALSE origin validation. Expected Origin: item_parent Munchies Waves→Rebela, Munchies Waves-Airlines→Rebela, Makhana Munchies→UD Foods (checked first); else Item_Group Makhana→Purnea, and Cashewnut/Dry Fruit Mix/Almonds/Apricot/Seeds/Raisins/Dates/Walnut/Pistachio/Desserts/Fig/Dried Fruits/Dry Fruit Combo/Gifting→Indore. TRUE if Origin equals the expected value, or Origin is CFA (GGN)/CFA (BLR) and that CFA\'s Item_Code + Shipping State checks pass. FALSE otherwise. Blank when no mapping applies and Origin is not CFA.' },
+  { sno:27, col:'Origin → CFA (BLR)',  rule:'Three conditions, all must be true (structurally identical to CFA (GGN)): Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa. Condition 2: Item_Code must be in the 76-code common CFA SKU list (same list as CFA (GGN); validation is on Item_Code, not Item_Name). Condition 3: Shipping State must be Andhra Pradesh, Karnataka, Kerala, Tamil Nadu, or Telangana. If all 3 are met → Origin = "CFA (BLR)". No stock check and no stock file required.' },
+  { sno:28, col:'Origin (Quick Commerce)', rule:'Additive override: if customer_group is Quick Commerce AND the Branch is one of Indore, Mangalore, Haryana, RPC Purnia, Uttar Pradesh, Purnea, or Tamil Nadu, then Origin is taken from the Branch: Indore→Indore, Mangalore→CFA (BLR), Haryana→CFA (GGN), RPC Purnia→Purnea, Uttar Pradesh→UD Foods, Purnea→Purnea, Tamil Nadu→Rebela. E-Commerce is NOT affected. Any other row (including Quick Commerce with a Branch not in this list) keeps its existing Origin unchanged.' },
   { sno:29, col:'Is CFA',                  rule:'REVISED — no longer based on the Origin value. Is CFA = "Yes" when the Item_Code is in the 76-code common CFA SKU list AND the Shipping State is serviceable by a CFA; otherwise "No". Applied across all customer groups.' },
   { sno:30, col:'CFA Serviceability Check', rule:'Separate from Is CFA and applied to ALL customer groups — reports whether any CFA could service the row. If Item_Code is in the 76-code common CFA list AND Shipping State is CFA-serviceable, returns "Yes, CFA GGN" (Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh) or "Yes, CFA BLR" (Telangana, Andhra Pradesh, Karnataka, Tamil Nadu, Kerala). Otherwise — item not listed or state not serviceable — returns "No, <Origin>" with the Origin value taken verbatim (e.g. "No, Indore"). Future CFAs follow the same "Yes, <CFA Name>" format.' },
   { sno:31, col:'Expected Source',          rule:'REVISED — fully derived, no longer an echo of the Origin column. If Is CFA = "Yes", returns the serving CFA — "CFA GGN" for the 10 north states, "CFA BLR" for the 5 south states. Otherwise it is derived from the item: Item_Group Makhana → "Purnea"; Item_Group Munchies with item_parent Makhana Munchies → "UD Foods"; Item_Group Munchies with item_parent Munchies Waves → "Rebela"; everything else (including item_parent Munchies Waves-Airlines) → "Indore". Compare against the Origin column to spot mismatches.' },
@@ -434,7 +434,7 @@ async function run() {
   ]);
 
   /* ── Common CFA item code list (Conditions 20 & 27) ───────────────
-     ONE list of 76 Item_Codes shared by BOTH CFA GGN and CFA BLR.
+     ONE list of 76 Item_Codes shared by BOTH CFA (GGN) and CFA (BLR).
      Business-supplied (sku (6).xlsx). Matching is on Item_Code, not
      Item_Name. */
   const CFA_COMMON_ITEM_CODES = new Set([
@@ -535,8 +535,8 @@ async function run() {
   const QC_GROUPS = new Set(['quick commerce']);
   const QC_BRANCH_ORIGIN = {
     'indore':        'Indore',
-    'mangalore':     'CFA BLR',
-    'haryana':       'CFA GGN',
+    'mangalore':     'CFA (BLR)',
+    'haryana':       'CFA (GGN)',
     'rpc purnia':    'Purnea',
     'uttar pradesh': 'UD Foods',
     'purnea':        'Purnea',
@@ -711,7 +711,7 @@ async function run() {
     const isNow = nor(clientType)==='now';
     const isCat = CAT_GROUP.has(nor(custGroup)); // Category A or Modern Trade
 
-    /* ── CFA GGN Origin Override (conditions 19-20) ──────────────────
+    /* ── CFA (GGN) Origin Override (conditions 19-20) ──────────────────
        Three checks, ALL must pass (no stock check, no input file):
          1. customer_group is Amazon Retail India, Category A, Vending or HoReCa
          2. Item_Code is in the 76-code common CFA list
@@ -719,7 +719,7 @@ async function run() {
     if (CFA_CUSTOMER_GROUPS.has(nor(custGroup))
         && CFA_COMMON_ITEM_CODES.has(nor(itemCode))
         && CFA_SHIPPING_STATES.has(nor(shipState))) {
-      origin = 'CFA GGN';
+      origin = 'CFA (GGN)';
     }
 
     /* ── CONDITION 23: Munchies Waves + Tamil Nadu → Origin = Rebela ─ */
@@ -727,16 +727,16 @@ async function run() {
       origin = 'Rebela';
     }
 
-    /* ── CONDITION 27: CFA BLR Origin Override ──────────────────────
+    /* ── CONDITION 27: CFA (BLR) Origin Override ──────────────────────
        Three checks, ALL must pass (no stock check, no input file) —
-       structurally identical to the CFA GGN rule:
+       structurally identical to the CFA (GGN) rule:
          1. customer_group is Amazon Retail India, Category A, Vending or HoReCa
          2. Item_Code is in the 76-code common CFA list
          3. Shipping State is one of the 5 southern states */
     if (CFA_CUSTOMER_GROUPS.has(nor(custGroup))
         && CFA_COMMON_ITEM_CODES.has(nor(itemCode))
         && CFA_BLR_STATES.has(nor(shipState))) {
-      origin = 'CFA BLR';
+      origin = 'CFA (BLR)';
     }
 
     /* ── CONDITION 28: Quick Commerce Branch → Origin ─────────────────
@@ -813,9 +813,9 @@ async function run() {
       ?? REA_ITEM_GROUP_ORIGIN[nor(itemGroup)];
     let reaValidation = '';
     let reaFalseReason = '';   // short reason, shown in Priority when Rea is FALSE
-    if (origin === 'CFA GGN' || origin === 'CFA BLR') {
+    if (origin === 'CFA (GGN)' || origin === 'CFA (BLR)') {
       const itemOk  = CFA_COMMON_ITEM_CODES.has(nor(itemCode));
-      const stateOk = origin === 'CFA GGN'
+      const stateOk = origin === 'CFA (GGN)'
         ? CFA_SHIPPING_STATES.has(nor(shipState))
         : CFA_BLR_STATES.has(nor(shipState));
       reaValidation = (itemOk && stateOk) ? 'TRUE' : 'FALSE';
@@ -929,7 +929,7 @@ async function run() {
       'Pending Kgs': pendKgs,
       Boxes: row['Boxes']||'',
       TPT: row['TPT']||'',
-      Origin: origin,  /* may be overridden to CFA GGN / CFA BLR */
+      Origin: origin,  /* may be overridden to CFA (GGN) / CFA (BLR) */
       Shipping_Address_Name: row['Shipping_Address_Name']||'',
       item_parent: row['item_parent']||'',
       'Case Size': row['Case Size']||'',
@@ -976,8 +976,8 @@ async function run() {
   });
 
   outputRows = result;
-  const cfaGurgaonCount = result.filter(r => r.Origin === 'CFA GGN').length;
-  const cfaBangaloreCount = result.filter(r => r.Origin === 'CFA BLR').length;
+  const cfaGurgaonCount = result.filter(r => r.Origin === 'CFA (GGN)').length;
+  const cfaBangaloreCount = result.filter(r => r.Origin === 'CFA (BLR)').length;
   const fkRows = result.filter(r => ['fk-grocery-vs48860','fk-hyperlocal-vs46867','fk-alpha-vs46867'].includes(nor(r.client_type)));
   const fkWithAppt = fkRows.filter(r => r.Appt && r.Appt !== '').length;
   log(`Rows kept: ${kept} | Rows skipped: ${skipped} | CFA Gurgaon: ${cfaGurgaonCount} | CFA Bangalore: ${cfaBangaloreCount}`,'ok');
