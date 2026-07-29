@@ -109,7 +109,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.11</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.12</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload each source tab as a separate Excel file → generates today's Dispatch Plan output</p>
   </header>
@@ -199,7 +199,7 @@ const CONDITIONS = [
   { sno:30, col:'CFA Serviceability Check', rule:'Separate from Is CFA and applied to ALL customer groups — reports whether any CFA could service the row. If Item_Code is in the 76-code common CFA list AND Shipping State is CFA-serviceable, returns "Yes, CFA GGN" (Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh) or "Yes, CFA BLR" (Telangana, Andhra Pradesh, Karnataka, Tamil Nadu, Kerala). Otherwise — item not listed or state not serviceable — returns "No, <Origin>" with the Origin value taken verbatim (e.g. "No, Indore"). Future CFAs follow the same "Yes, <CFA Name>" format.' },
   { sno:31, col:'Expected Source',          rule:'REVISED — resolved by customer_group, in this order. (1) CPC KPKB or CSD: CFA logic is ignored entirely and the item-derived source is used. (2) E-Commerce or Quick Commerce: returns the Origin as-is, since the Branch already governs it. (3) Otherwise, if Is CFA = "Yes", returns the serving CFA — "CFA GGN" or "CFA BLR". (4) Otherwise the item-derived source. Item-derived source = Item_Group Makhana → "Purnea"; Item_Group Munchies with item_parent Makhana Munchies → "UD Foods"; Item_Group Munchies with item_parent Munchies Waves or Munchies Waves-Airlines → "Rebela"; everything else → "Indore".' },
   { sno:32, col:'Order Corrected Remark', rule:'REVISED — sits next to CFA Serviceability Check. Tags the order with the CFA that could dispatch it under the CFA logic (Item_Code in the 76-code common CFA list AND Shipping State serviceable): "CFA GGN" or "CFA BLR". When no CFA applies it now falls back to the item-derived source instead of being left blank, for ALL customer groups: Item_Group Makhana → "Purnea"; Munchies with item_parent Makhana Munchies → "UD Foods"; Munchies with item_parent Munchies Waves or Munchies Waves-Airlines → "Rebela"; everything else → "Indore".' },
-  { sno:33, col:'Source Check',            rule:'REVISED — "TRUE" when Expected Source agrees with the Origin, else "FALSE". The comparison is canonical — parentheses, case and extra spaces are ignored — so the Origin spelling "CFA (GGN)" counts as equal to "CFA GGN". FALSE therefore flags a row whose actual Origin differs from the source the logic expects.' },
+  { sno:33, col:'Source Check',            rule:'REVISED — "TRUE" only when all three agree: Expected Source = Origin = Order Corrected Remark (the branch-aware corrected source). Otherwise "FALSE". The comparison is canonical — parentheses, case and extra spaces are ignored — so the Origin spelling "CFA (GGN)" counts as equal to "CFA GGN". FALSE therefore flags a row where the actual Origin, the expected source, and the corrected source do not all line up.' },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -895,11 +895,14 @@ async function run() {
        of being left blank, for ALL customer groups. */
     const orderCorrectedRemark = cfaArea ? cfaArea.label : itemDerivedSource();
 
-    /* CONDITION 33 (REVISED): Source Check — does Expected Source agree with
-       the Origin? Compared canonically so the two CFA spellings
-       ("CFA (GGN)" from Origin vs "CFA GGN") count as equal. */
+    /* CONDITION 33 (REVISED): Source Check — three-way agreement between
+       Expected Source, the Origin, and Order Corrected Remark (the
+       branch-aware corrected source). TRUE only when all three match.
+       Compared canonically so the two CFA spellings ("CFA (GGN)" from
+       Origin vs "CFA GGN") count as equal. */
     const canonSource = s => nor(s).replace(/[()]/g, '').replace(/\s+/g, ' ').trim();
-    const sourceCheck = canonSource(expectedSource) === canonSource(origin)
+    const sourceCheck = (canonSource(expectedSource) === canonSource(origin)
+                      && canonSource(expectedSource) === canonSource(orderCorrectedRemark))
       ? 'TRUE' : 'FALSE';
 
     /* CONDITION 10: If Dispatched, then EDD = Remark + Day */
