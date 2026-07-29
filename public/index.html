@@ -109,7 +109,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.7</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.8</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload each source tab as a separate Excel file → generates today's Dispatch Plan output</p>
   </header>
@@ -197,7 +197,8 @@ const CONDITIONS = [
   { sno:28, col:'Origin (Quick Commerce)', rule:'Additive override: if customer_group is Quick Commerce AND the Branch is one of Indore, Mangalore, Haryana, RPC Purnia, Uttar Pradesh, Purnea, or Tamil Nadu, then Origin is taken from the Branch: Indore→Indore, Mangalore→CFA (BLR), Haryana→CFA (GGN), RPC Purnia→Purnea, Uttar Pradesh→UD Foods, Purnea→Purnea, Tamil Nadu→Rebela. E-Commerce is NOT affected. Any other row (including Quick Commerce with a Branch not in this list) keeps its existing Origin unchanged.' },
   { sno:29, col:'Is CFA',                  rule:'REVISED — no longer based on the Origin value. Is CFA = "Yes" when the Item_Code is in the 76-code common CFA SKU list AND the Shipping State is serviceable by a CFA; otherwise "No". Applied across all customer groups.' },
   { sno:30, col:'CFA Serviceability Check', rule:'Separate from Is CFA and applied to ALL customer groups — reports whether any CFA could service the row. If Item_Code is in the 76-code common CFA list AND Shipping State is CFA-serviceable, returns "Yes, CFA GGN" (Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh) or "Yes, CFA BLR" (Telangana, Andhra Pradesh, Karnataka, Tamil Nadu, Kerala). Otherwise — item not listed or state not serviceable — returns "No, <Origin>" with the Origin value taken verbatim (e.g. "No, Indore"). Future CFAs follow the same "Yes, <CFA Name>" format.' },
-  { sno:31, col:'Expected Source',          rule:'REVISED — fully derived, no longer an echo of the Origin column. If Is CFA = "Yes", returns the serving CFA — "CFA GGN" for the 10 north states, "CFA BLR" for the 5 south states. Otherwise it is derived from the item: Item_Group Makhana → "Purnea"; Item_Group Munchies with item_parent Makhana Munchies → "UD Foods"; Item_Group Munchies with item_parent Munchies Waves → "Rebela"; everything else (including item_parent Munchies Waves-Airlines) → "Indore". Compare against the Origin column to spot mismatches.' },
+  { sno:31, col:'Expected Source',          rule:'REVISED — resolved by customer_group, in this order. (1) CPC KPKB or CSD: CFA logic is ignored entirely and the item-derived source is used. (2) E-Commerce or Quick Commerce: returns the Origin as-is, since the Branch already governs it. (3) Otherwise, if Is CFA = "Yes", returns the serving CFA — "CFA GGN" or "CFA BLR". (4) Otherwise the item-derived source. Item-derived source = Item_Group Makhana → "Purnea"; Item_Group Munchies with item_parent Makhana Munchies → "UD Foods"; Item_Group Munchies with item_parent Munchies Waves or Munchies Waves-Airlines → "Rebela"; everything else → "Indore".' },
+  { sno:32, col:'Order Corrected Remark', rule:'Sits next to CFA Serviceability Check. Tags the order with the CFA that could dispatch it under the CFA logic (Item_Code in the 76-code common CFA list AND Shipping State serviceable): "CFA GGN" or "CFA BLR". Blank when no CFA applies.' },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -533,6 +534,13 @@ async function run() {
      values. E-Commerce is intentionally excluded — it keeps its normal
      origin logic. */
   const QC_GROUPS = new Set(['quick commerce']);
+
+  /* ── Customer groups with special Expected Source handling (Cond 31) ──
+     CPC KPKB / CSD ignore CFA logic entirely and always use the
+     item-derived source. E-Commerce / Quick Commerce take the Origin
+     as-is, since the Branch already governs it. */
+  const CPC_CSD_GROUPS  = new Set(['cpc kpkb','csd']);
+  const ECOM_QC_GROUPS  = new Set(['e-commerce','quick commerce']);
   const QC_BRANCH_ORIGIN = {
     'indore':        'Indore',
     'mangalore':     'CFA (BLR)',
@@ -840,28 +848,45 @@ async function run() {
        (was previously based on whether Origin started with "CFA"). */
     const isCfaFlag = cfaArea ? 'Yes' : 'No';
 
-    /* CONDITION 31 (REVISED): Expected Source — fully derived, no longer an
-       echo of the Origin column.
-         CFA-serviceable (Is CFA = Yes)              -> the serving CFA
-         else Item_Group Makhana                     -> Purnea
-         else Munchies + parent Makhana Munchies     -> UD Foods
-         else Munchies + parent Munchies Waves       -> Rebela
-         else (incl. Munchies Waves-Airlines)        -> Indore */
+    /* Item-derived source, shared by the CPC KPKB/CSD branch and the
+       default branch below:
+         Item_Group Makhana                                      -> Purnea
+         Munchies + parent Makhana Munchies                      -> UD Foods
+         Munchies + parent Munchies Waves / Munchies Waves-Airlines -> Rebela
+         anything else                                           -> Indore */
+    const itemDerivedSource = () => {
+      if (nor(itemGroup) === 'makhana') return 'Purnea';
+      if (nor(itemGroup) === 'munchies') {
+        const p = nor(itemParentVal);
+        if (p === 'makhana munchies') return 'UD Foods';
+        if (p === 'munchies waves' || p === 'munchies waves-airlines') return 'Rebela';
+      }
+      return 'Indore';
+    };
+
+    /* CONDITION 31 (REVISED): Expected Source
+         CPC KPKB / CSD          -> item-derived, CFA logic ignored entirely
+         E-Commerce / Quick Commerce -> the Origin as-is (Branch governs it)
+         else CFA-serviceable    -> the serving CFA
+         else                    -> item-derived */
     let expectedSource;
-    if (cfaArea) {
+    if (CPC_CSD_GROUPS.has(nor(custGroup))) {
+      expectedSource = itemDerivedSource();
+    } else if (ECOM_QC_GROUPS.has(nor(custGroup))) {
+      expectedSource = origin;
+    } else if (cfaArea) {
       expectedSource = cfaArea.label;
-    } else if (nor(itemGroup) === 'makhana') {
-      expectedSource = 'Purnea';
-    } else if (nor(itemGroup) === 'munchies' && nor(itemParentVal) === 'makhana munchies') {
-      expectedSource = 'UD Foods';
-    } else if (nor(itemGroup) === 'munchies' && nor(itemParentVal) === 'munchies waves') {
-      expectedSource = 'Rebela';
     } else {
-      expectedSource = 'Indore';
+      expectedSource = itemDerivedSource();
     }
 
     /* CONDITION 30: CFA Serviceability Check = the two combined. */
     const cfaServiceability = cfaArea ? `Yes, ${cfaArea.label}` : `No, ${origin}`;
+
+    /* CONDITION 32: Order Corrected Remark — tags the order with the CFA
+       that could dispatch it (per the SKU + shipping-state logic), blank
+       when no CFA applies. */
+    const orderCorrectedRemark = cfaArea ? cfaArea.label : '';
 
     /* CONDITION 10: If Dispatched, then EDD = Remark + Day */
     const remarkSerial = remarkToSerial(remarkRaw);
@@ -972,6 +997,7 @@ async function run() {
       'Is CFA': isCfaFlag,
       'Expected Source': expectedSource,
       'CFA Serviceability Check': cfaServiceability,
+      'Order Corrected Remark': orderCorrectedRemark,
     });
   });
 
@@ -1000,7 +1026,7 @@ const PREVIEW_COLS = [
   'customer_group','client_type','Appt','Remark','Priority',
   'Final Dispatch Status','Dispatch_Status','If Dispatched, then EDD','EDD',
   'Pending Kgs','Origin','Shipping State','Day','Customer','Item_Code','Branch',
-  'Rea','Is CFA','Expected Source','CFA Serviceability Check'
+  'Rea','Is CFA','Expected Source','CFA Serviceability Check','Order Corrected Remark'
 ];
 
 function renderTable(rows) {
@@ -1039,7 +1065,8 @@ const EXPORT_COLS = [
   'New MIS ITEM Group','Branch','Dispatch_Status','Origin_Indore_Status',
   'Origin_Purnea_Status','Origin_UD_Foods_Status','DATE(tso.sales_order_confirmation_date)',
   'owner','Workflow_State','purpose','Sales_Order_Status','Delivery_Date','Multi GRN',
-  'Merge','CFA Check','Is CFA','Expected Source','CFA Serviceability Check'
+  'Merge','CFA Check','Is CFA','Expected Source','CFA Serviceability Check',
+  'Order Corrected Remark'
 ];
 
 const DATE_COLS = new Set(['Sales_Order_Date','po_expiry_date','Appt','Remark','If Dispatched, then EDD','Delivery_Date','DATE(tso.sales_order_confirmation_date)']);
