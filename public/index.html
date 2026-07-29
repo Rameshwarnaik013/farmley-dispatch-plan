@@ -109,7 +109,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.9</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.10</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload each source tab as a separate Excel file → generates today's Dispatch Plan output</p>
   </header>
@@ -331,6 +331,11 @@ function remarkToSerial(val) {
 }
 
 const nor = s => String(s||'').trim().toLowerCase();
+
+// Display helper: render CFA origins without parentheses for the
+// Expected Source / CFA Serviceability Check columns only.
+// "CFA (GGN)" -> "CFA GGN", "CFA (BLR)" -> "CFA BLR". Other values pass through.
+const cfaLabelNorm = s => String(s ?? '').replace(/CFA\s*\(\s*(GGN|BLR)\s*\)/gi, 'CFA $1');
 const fc = (obj,...names) => { for(const n of names){ const f=Object.keys(obj).find(k=>nor(k)===nor(n)); if(f)return f; } return names[0]; };
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -874,7 +879,7 @@ async function run() {
     if (CPC_CSD_GROUPS.has(nor(custGroup))) {
       expectedSource = itemDerivedSource();
     } else if (ECOM_QC_GROUPS.has(nor(custGroup))) {
-      expectedSource = origin;
+      expectedSource = cfaLabelNorm(origin);
     } else if (cfaArea) {
       expectedSource = cfaArea.label;
     } else {
@@ -882,7 +887,7 @@ async function run() {
     }
 
     /* CONDITION 30: CFA Serviceability Check = the two combined. */
-    const cfaServiceability = cfaArea ? `Yes, ${cfaArea.label}` : `No, ${origin}`;
+    const cfaServiceability = cfaArea ? `Yes, ${cfaArea.label}` : `No, ${cfaLabelNorm(origin)}`;
 
     /* CONDITION 32 (REVISED): Order Corrected Remark — tags the order with
        the CFA that could dispatch it (per the SKU + shipping-state logic).
