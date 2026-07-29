@@ -109,7 +109,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.4</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.5</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload each source tab as a separate Excel file → generates today's Dispatch Plan output</p>
   </header>
@@ -197,7 +197,7 @@ const CONDITIONS = [
   { sno:28, col:'Origin (Quick Commerce)', rule:'Additive override: if customer_group is Quick Commerce AND the Branch is one of Indore, Mangalore, Haryana, RPC Purnia, Uttar Pradesh, Purnea, or Tamil Nadu, then Origin is taken from the Branch: Indore→Indore, Mangalore→CFA (BLR), Haryana→CFA (GGN), RPC Purnia→Purnea, Uttar Pradesh→UD Foods, Purnea→Purnea, Tamil Nadu→Rebela. E-Commerce is NOT affected. Any other row (including Quick Commerce with a Branch not in this list) keeps its existing Origin unchanged.' },
   { sno:29, col:'Is CFA',                  rule:'REVISED — no longer based on the Origin value. Is CFA = "Yes" when the Item_Code is in the 76-code common CFA SKU list AND the Shipping State is serviceable by a CFA; otherwise "No". Applied across all customer groups.' },
   { sno:30, col:'CFA Serviceability Check', rule:'Separate from Is CFA and applied to ALL customer groups — reports whether any CFA could service the row. If Item_Code is in the 76-code common CFA list AND Shipping State is CFA-serviceable, returns "Yes, CFA GGN" (Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh) or "Yes, CFA BLR" (Telangana, Andhra Pradesh, Karnataka, Tamil Nadu, Kerala). Otherwise — item not listed or state not serviceable — returns "No, <Origin>" with the Origin value taken verbatim (e.g. "No, Indore"). Future CFAs follow the same "Yes, <CFA Name>" format.' },
-  { sno:31, col:'Expected Source',          rule:'Sits immediately next to Is CFA. If Is CFA = "Yes", returns the serving CFA — "CFA GGN" for the 10 north states, "CFA BLR" for the 5 south states. Otherwise returns the row\'s Origin value verbatim (e.g. Indore, Purnea, Rebela).' },
+  { sno:31, col:'Expected Source',          rule:'REVISED — fully derived, no longer an echo of the Origin column. If Is CFA = "Yes", returns the serving CFA — "CFA GGN" for the 10 north states, "CFA BLR" for the 5 south states. Otherwise it is derived from the item: Item_Group Makhana → "Purnea"; Item_Group Munchies with item_parent Makhana Munchies → "UD Foods"; Item_Group Munchies with item_parent Munchies Waves → "Rebela"; everything else (including item_parent Munchies Waves-Airlines) → "Indore". Compare against the Origin column to spot mismatches.' },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -840,9 +840,25 @@ async function run() {
        (was previously based on whether Origin started with "CFA"). */
     const isCfaFlag = cfaArea ? 'Yes' : 'No';
 
-    /* CONDITION 31: Expected Source = the serving CFA when Is CFA is Yes,
-       otherwise the row's Origin taken verbatim. */
-    const expectedSource = cfaArea ? cfaArea.label : origin;
+    /* CONDITION 31 (REVISED): Expected Source — fully derived, no longer an
+       echo of the Origin column.
+         CFA-serviceable (Is CFA = Yes)              -> the serving CFA
+         else Item_Group Makhana                     -> Purnea
+         else Munchies + parent Makhana Munchies     -> UD Foods
+         else Munchies + parent Munchies Waves       -> Rebela
+         else (incl. Munchies Waves-Airlines)        -> Indore */
+    let expectedSource;
+    if (cfaArea) {
+      expectedSource = cfaArea.label;
+    } else if (nor(itemGroup) === 'makhana') {
+      expectedSource = 'Purnea';
+    } else if (nor(itemGroup) === 'munchies' && nor(itemParentVal) === 'makhana munchies') {
+      expectedSource = 'UD Foods';
+    } else if (nor(itemGroup) === 'munchies' && nor(itemParentVal) === 'munchies waves') {
+      expectedSource = 'Rebela';
+    } else {
+      expectedSource = 'Indore';
+    }
 
     /* CONDITION 30: CFA Serviceability Check = the two combined. */
     const cfaServiceability = cfaArea ? `Yes, ${cfaArea.label}` : `No, ${origin}`;
