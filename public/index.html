@@ -109,7 +109,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.14</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.15</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload each source tab as a separate Excel file → generates today's Dispatch Plan output</p>
   </header>
@@ -1129,91 +1129,108 @@ function buildPivotSourceSheet(rows) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   ANALYSIS TAB — static summary cross-tabs (NOT live Excel PivotTables;
-   SheetJS community edition cannot write pivot-cache/pivot-table XML parts).
-   Computed once at export time from outputRows; filters are baked into the
-   numbers rather than being interactive dropdowns. Kept as a reference for
-   what each of the 5 pivots (built from the Pivot Source tab) should show.
+   PIVOT SHEETS — one sheet per pivot, each with a REAL working AutoFilter
+   (verified: SheetJS round-trips '!autofilter' correctly) so the sales team
+   gets genuine filter dropdowns on every column. These are still static
+   cross-tabs, not live Excel PivotTables — SheetJS community edition cannot
+   write pivot-cache/pivot-table XML, and cell fill/bold-font writing was
+   also verified NOT to round-trip in this build (readback always came back
+   patternType:'none'), so "color coding" here uses colored emoji glyphs
+   instead of cell background colors — these render in actual color in
+   Excel because they're glyphs, not styling, so they aren't affected by
+   that limitation. 🟢 = item/state qualifies for a CFA but isn't routed
+   there; 🟠 = origin conflicts with the item-group/parent routing rule;
+   🔴 = the underlying Rea validation failed outright (see Priority).
 ═══════════════════════════════════════════════════════════════════════════ */
-function buildAnalysisSheet(rows) {
-  const wsA = {};
+function buildOnePivotSheet(title, filterNote, data, rowLevels, rowLabels, rowPartsFn, colLevels, colPartsFn, sortRowFn) {
+  const ws = {};
   const merges = [];
   let curRow = 0;
   let maxCol = 0;
-
-  const isoFromSerial = s => { if (!s || isNaN(s)) return ''; const d = new Date((s - 25569) * 86400000); return d.toISOString().slice(0, 10); };
   const round3 = v => Math.round(v * 1000) / 1000;
 
   function setCell(r, c, val, isNum) {
     const addr = XLSX.utils.encode_cell({ r, c });
-    wsA[addr] = isNum ? { t: 'n', v: val } : { t: 's', v: String(val) };
+    ws[addr] = isNum ? { t: 'n', v: val, z: '#,##0.00' } : { t: 's', v: String(val) };
     if (c > maxCol) maxCol = c;
   }
 
-  function writePivot(title, filterNote, data, rowLevels, rowPartsFn, colLevels, colPartsFn, sortRowFn) {
-    setCell(curRow, 0, title); curRow++;
-    if (filterNote) { setCell(curRow, 0, filterNote); curRow++; }
-    curRow++;
+  setCell(curRow, 0, title); curRow++;
+  if (filterNote) { setCell(curRow, 0, filterNote); curRow++; }
+  setCell(curRow, 0, '🟢 route to CFA   🟠 item-group mismatch   🔴 validation failure (see Priority)'); curRow++;
+  curRow++;
 
-    if (!data.length) { setCell(curRow, 0, '(no matching rows)'); curRow += 3; return; }
+  if (!data.length) {
+    setCell(curRow, 0, '(no matching rows)');
+    ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: curRow, c: Math.max(maxCol, 0) } });
+    return ws;
+  }
 
     const rowMap = new Map();
-    const colSeen = new Map();
-    data.forEach(row => {
-      const rParts = rowPartsFn(row).map(x => (x === '' || x == null) ? '(blank)' : String(x));
-      const rKey = rParts.join('');
-      const cParts = colLevels === 0 ? ['Sum of Pending Kgs'] : colPartsFn(row).map(x => (x === '' || x == null) ? '(blank)' : String(x));
-      const cKey = cParts.join('');
-      colSeen.set(cKey, cParts);
-      if (!rowMap.has(rKey)) rowMap.set(rKey, { parts: rParts, cols: new Map(), total: 0, sortVal: sortRowFn ? sortRowFn(row) : null });
-      const e = rowMap.get(rKey);
-      const v = parseFloat(row['Pending Kgs']) || 0;
-      e.cols.set(cKey, (e.cols.get(cKey) || 0) + v);
-      e.total += v;
-    });
+  const colSeen = new Map();
+  data.forEach(row => {
+    const rParts = rowPartsFn(row).map(x => (x === '' || x == null) ? '(blank)' : String(x));
+    const rKey = rParts.join('');
+    const cParts = colLevels === 0 ? ['Sum of Pending Kgs'] : colPartsFn(row).map(x => (x === '' || x == null) ? '(blank)' : String(x));
+    const cKey = cParts.join('');
+    colSeen.set(cKey, cParts);
+    if (!rowMap.has(rKey)) rowMap.set(rKey, { parts: rParts, cols: new Map(), total: 0, sortVal: sortRowFn ? sortRowFn(row) : null });
+    const e = rowMap.get(rKey);
+    const v = parseFloat(row['Pending Kgs']) || 0;
+    e.cols.set(cKey, (e.cols.get(cKey) || 0) + v);
+    e.total += v;
+  });
 
-    const rowEntries = Array.from(rowMap.values()).sort((a, b) => {
-      if (a.sortVal != null && b.sortVal != null && a.sortVal !== b.sortVal) return a.sortVal - b.sortVal;
-      return a.parts.join('').localeCompare(b.parts.join(''));
-    });
-    const colEntries = Array.from(colSeen.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  const rowEntries = Array.from(rowMap.values()).sort((a, b) => {
+    if (a.sortVal != null && b.sortVal != null && a.sortVal !== b.sortVal) return a.sortVal - b.sortVal;
+    return a.parts.join('').localeCompare(b.parts.join(''));
+  });
+  const colEntries = Array.from(colSeen.entries()).sort((a, b) => a[0].localeCompare(b[0]));
 
-    const headerStartRow = curRow;
-    if (colLevels === 0) {
-      setCell(headerStartRow, rowLevels, 'Sum of Pending Kgs');
-      curRow = headerStartRow + 1;
-      let grand = 0;
-      rowEntries.forEach(entry => {
-        entry.parts.forEach((p, idx) => setCell(curRow, idx, p));
-        setCell(curRow, rowLevels, round3(entry.total), true);
-        grand += entry.total;
-        curRow++;
-      });
-      setCell(curRow, 0, 'Grand Total');
-      setCell(curRow, rowLevels, round3(grand), true);
-      curRow += 3;
-      return;
+  const headerStartRow = curRow;
+  const headerRows = colLevels === 2 ? 2 : 1;
+  let filterEndCol;
+
+  if (colLevels === 0) {
+    setCell(headerStartRow, rowLevels, 'Sum of Pending Kgs');
+    filterEndCol = rowLevels;
+  } else if (colLevels === 2) {
+    let c = rowLevels, i = 0;
+    while (i < colEntries.length) {
+      const parts = colEntries[i][1]; const lvl1 = parts[0];
+      let span = 0; while (i + span < colEntries.length && colEntries[i + span][1][0] === lvl1) span++;
+      setCell(headerStartRow, c, lvl1);
+      if (span > 1) merges.push({ s: { r: headerStartRow, c }, e: { r: headerStartRow, c: c + span - 1 } });
+      for (let k = 0; k < span; k++) setCell(headerStartRow + 1, c + k, colEntries[i + k][1][1]);
+      c += span; i += span;
     }
+    setCell(headerStartRow, c, 'Grand Total');
+    merges.push({ s: { r: headerStartRow, c }, e: { r: headerStartRow + 1, c } });
+    filterEndCol = c;
+  } else {
+    colEntries.forEach((ce, idx) => setCell(headerStartRow, rowLevels + idx, ce[1][0]));
+    setCell(headerStartRow, rowLevels + colEntries.length, 'Grand Total');
+    filterEndCol = rowLevels + colEntries.length;
+  }
 
-    const headerRows = colLevels === 2 ? 2 : 1;
-    if (colLevels === 2) {
-      let c = rowLevels, i = 0;
-      while (i < colEntries.length) {
-        const parts = colEntries[i][1]; const lvl1 = parts[0];
-        let span = 0; while (i + span < colEntries.length && colEntries[i + span][1][0] === lvl1) span++;
-        setCell(headerStartRow, c, lvl1);
-        if (span > 1) merges.push({ s: { r: headerStartRow, c }, e: { r: headerStartRow, c: c + span - 1 } });
-        for (let k = 0; k < span; k++) setCell(headerStartRow + 1, c + k, colEntries[i + k][1][1]);
-        c += span; i += span;
-      }
-      setCell(headerStartRow, c, 'Grand Total');
-      merges.push({ s: { r: headerStartRow, c }, e: { r: headerStartRow + 1, c } });
-    } else {
-      colEntries.forEach((ce, idx) => setCell(headerStartRow, rowLevels + idx, ce[1][0]));
-      setCell(headerStartRow, rowLevels + colEntries.length, 'Grand Total');
-    }
-    curRow = headerStartRow + headerRows;
+  const lastHeaderRow = headerStartRow + headerRows - 1;
+  rowLabels.forEach((lbl, idx) => setCell(lastHeaderRow, idx, lbl));
+  curRow = headerStartRow + headerRows;
+  const dataStartRow = curRow;
 
+  if (colLevels === 0) {
+    let grand = 0;
+    rowEntries.forEach(entry => {
+      entry.parts.forEach((p, idx) => setCell(curRow, idx, p));
+      setCell(curRow, rowLevels, round3(entry.total), true);
+      grand += entry.total;
+      curRow++;
+    });
+    const dataEndRow = curRow - 1;
+    setCell(curRow, 0, 'Grand Total');
+    setCell(curRow, rowLevels, round3(grand), true);
+    ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: dataStartRow - 1, c: 0 }, e: { r: dataEndRow, c: filterEndCol } }) };
+  } else {
     const colTotals = new Array(colEntries.length).fill(0);
     let grand = 0;
     rowEntries.forEach(entry => {
@@ -1227,50 +1244,77 @@ function buildAnalysisSheet(rows) {
       grand += entry.total;
       curRow++;
     });
+    const dataEndRow = curRow - 1;
     setCell(curRow, 0, 'Grand Total');
     colEntries.forEach((ce, idx) => setCell(curRow, rowLevels + idx, round3(colTotals[idx]), true));
     setCell(curRow, rowLevels + colEntries.length, round3(grand), true);
-    curRow += 3;
+    ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: lastHeaderRow, c: 0 }, e: { r: dataEndRow, c: filterEndCol } }) };
   }
 
-  setCell(curRow, 0, 'Analysis — static summary tables computed at export time (not live Excel PivotTables)'); curRow++;
-  setCell(curRow, 0, 'Filters noted above each table are baked into these numbers; re-generate the plan for different data.'); curRow++;
-  setCell(curRow, 0, 'For a real, filterable PivotTable: go to the "Pivot Source" tab, click any cell, then Insert > PivotTable. Use the field layout shown above each table below as a guide.'); curRow += 2;
+  ws['!merges'] = merges;
+  ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: curRow, c: maxCol } });
+  ws['!cols'] = new Array(rowLevels).fill({ wch: 30 }).concat(new Array(Math.max(0, maxCol - rowLevels + 1)).fill({ wch: 14 }));
+  return ws;
+}
 
-  const priorityOf = r => r.Priority || '';
+function buildAllPivotSheets(rows) {
+  const isoFromSerial = s => { if (!s || isNaN(s)) return ''; const d = new Date((s - 25569) * 86400000); return d.toISOString().slice(0, 10); };
+
+  // Promote a blank Priority to the CFA tag when Order Corrected Remark is a
+  // CFA label, so "route to a CFA" shows up as its own top-level group
+  // instead of being buried under "(blank)". Then tag with a colored emoji
+  // so the sales team can triage at a glance without needing cell colors.
+  const priorityForPivot = r => {
+    const p = r.Priority || '';
+    if (p) return p;
+    const ocr = r['Order Corrected Remark'] || '';
+    return (ocr === 'CFA GGN' || ocr === 'CFA BLR') ? ocr : '';
+  };
+  const markLabel = label => {
+    if (label === 'CFA GGN' || label === 'CFA BLR') return '🟢 ' + label;
+    if (typeof label === 'string' && label.indexOf('Expected ') === 0) return '🟠 ' + label;
+    if (label === 'Item not listed' || label === 'Wrong state' || label === 'Item & state') return '🔴 ' + label;
+    return label;
+  };
+  const priorityOf = r => markLabel(priorityForPivot(r));
   const ocrOf = r => r['Order Corrected Remark'] || '';
+
   const qcFalse = rows.filter(r => r['Source Check'] === 'FALSE' && nor(r.customer_group) === 'quick commerce');
   const allFalse = rows.filter(r => r['Source Check'] === 'FALSE');
 
-  writePivot(
-    'Pivot 1 — Priority x Order Corrected Remark by Shipping State',
-    'Filters: Source Check = FALSE, customer_group = Quick Commerce | Values: Sum of Pending Kgs',
-    qcFalse, 2, r => [priorityOf(r), ocrOf(r)], 1, r => [r['Shipping State']]);
+  const sheets = {};
 
-  writePivot(
-    'Pivot 2 — Pending Kgs by Sales Order Date',
+  sheets['Pivot 1'] = buildOnePivotSheet(
+    'Pivot 1 - Priority x Order Corrected Remark by Shipping State',
     'Filters: Source Check = FALSE, customer_group = Quick Commerce | Values: Sum of Pending Kgs',
-    qcFalse, 1, r => [r._soDateSerial ? isoFromSerial(r._soDateSerial) : ''], 0, null, r => r._soDateSerial || Infinity);
+    qcFalse, 2, ['Priority', 'Order Corrected Remark'], r => [priorityOf(r), ocrOf(r)],
+    1, r => [r['Shipping State']]);
 
-  writePivot(
-    'Pivot 3 — Sales Order Date x Priority / Order Corrected Remark',
+  sheets['Pivot 2'] = buildOnePivotSheet(
+    'Pivot 2 - Pending Kgs by Sales Order Date',
     'Filters: Source Check = FALSE, customer_group = Quick Commerce | Values: Sum of Pending Kgs',
-    qcFalse, 1, r => [r._soDateSerial ? isoFromSerial(r._soDateSerial) : ''], 2, r => [priorityOf(r), ocrOf(r)], r => r._soDateSerial || Infinity);
+    qcFalse, 1, ['Sales Order Date'], r => [r._soDateSerial ? isoFromSerial(r._soDateSerial) : ''],
+    0, null, r => r._soDateSerial || Infinity);
 
-  writePivot(
-    'Pivot 4 — customer_group x Priority / Order Corrected Remark',
+  sheets['Pivot 3'] = buildOnePivotSheet(
+    'Pivot 3 - Sales Order Date x Priority / Order Corrected Remark',
+    'Filters: Source Check = FALSE, customer_group = Quick Commerce | Values: Sum of Pending Kgs',
+    qcFalse, 1, ['Sales Order Date'], r => [r._soDateSerial ? isoFromSerial(r._soDateSerial) : ''],
+    2, r => [priorityOf(r), ocrOf(r)], r => r._soDateSerial || Infinity);
+
+  sheets['Pivot 4'] = buildOnePivotSheet(
+    'Pivot 4 - customer_group x Priority / Order Corrected Remark',
     'Filter: Source Check = FALSE | Values: Sum of Pending Kgs',
-    allFalse, 1, r => [r.customer_group], 2, r => [priorityOf(r), ocrOf(r)]);
+    allFalse, 1, ['Customer Group'], r => [r.customer_group],
+    2, r => [priorityOf(r), ocrOf(r)]);
 
-  writePivot(
-    'Pivot 5 — New MIS ITEM Group x Priority / Order Corrected Remark',
+  sheets['Pivot 5'] = buildOnePivotSheet(
+    'Pivot 5 - New MIS ITEM Group x Priority / Order Corrected Remark',
     'Filter: Source Check = FALSE | Values: Sum of Pending Kgs',
-    allFalse, 1, r => [r['New MIS ITEM Group']], 2, r => [priorityOf(r), ocrOf(r)]);
+    allFalse, 1, ['New MIS ITEM Group'], r => [r['New MIS ITEM Group']],
+    2, r => [priorityOf(r), ocrOf(r)]);
 
-  wsA['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: curRow, c: maxCol } });
-  wsA['!merges'] = merges;
-  wsA['!cols'] = [{ wch: 26 }, { wch: 22 }].concat(new Array(Math.max(0, maxCol - 1)).fill({ wch: 14 }));
-  return wsA;
+  return sheets;
 }
 
 function exportToExcel() {
@@ -1463,10 +1507,10 @@ function exportToExcel() {
   XLSX.utils.book_append_sheet(wb, wsYest, 'Yesterday');
   const wsPivotSrc = buildPivotSourceSheet(outputRows);
   XLSX.utils.book_append_sheet(wb, wsPivotSrc, 'Pivot Source');
-  const wsAnalysis = buildAnalysisSheet(outputRows);
-  XLSX.utils.book_append_sheet(wb, wsAnalysis, 'Analysis');
+  const pivotSheets = buildAllPivotSheets(outputRows);
+  Object.keys(pivotSheets).forEach(name => XLSX.utils.book_append_sheet(wb, pivotSheets[name], name));
   XLSX.writeFile(wb, 'Dispatch_Plan_Today_'+new Date().toISOString().slice(0,10)+'.xlsx');
-  log('✓ Excel exported with formulas + reference sheets (LEAD TIME, Appointments, Yesterday, Pivot Source, Analysis)','ok');
+  log('✓ Excel exported with formulas + reference sheets (LEAD TIME, Appointments, Yesterday, Pivot Source, Pivot 1-5)','ok');
 }
 
 
