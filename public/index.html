@@ -109,7 +109,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.13</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.14</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload each source tab as a separate Excel file → generates today's Dispatch Plan output</p>
   </header>
@@ -1097,10 +1097,43 @@ const NUMERIC_COLS = new Set([
 ]);
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   PIVOT SOURCE TAB — a clean flat data range with just the fields needed
+   for the 5 reference pivots. SheetJS (this app's Excel library) can only
+   READ pivot table XML, not write it, so real interactive PivotTables
+   can't be embedded automatically. This sheet is deliberately a plain,
+   contiguous table so Insert → PivotTable in Excel works immediately on
+   the whole range, with real filters, drag-and-drop and refresh.
+═══════════════════════════════════════════════════════════════════════════ */
+function buildPivotSourceSheet(rows) {
+  const cols = ['Source Check','customer_group','Priority','Order Corrected Remark',
+                'Shipping State','Sales_Order_Date','New MIS ITEM Group','Pending Kgs'];
+  const data = rows.map(r => ({
+    'Source Check': r['Source Check'] || '',
+    customer_group: r.customer_group || '',
+    Priority: r.Priority || '',
+    'Order Corrected Remark': r['Order Corrected Remark'] || '',
+    'Shipping State': r['Shipping State'] || '',
+    Sales_Order_Date: r._soDateSerial || '',
+    'New MIS ITEM Group': r['New MIS ITEM Group'] || '',
+    'Pending Kgs': parseFloat(r['Pending Kgs']) || 0,
+  }));
+  const wsP = XLSX.utils.json_to_sheet(data, { header: cols });
+  const dateCol = cols.indexOf('Sales_Order_Date');
+  const range = XLSX.utils.decode_range(wsP['!ref'] || 'A1');
+  for (let R = range.s.r + 1; R <= range.e.r; R++) {
+    const addr = XLSX.utils.encode_cell({ r: R, c: dateCol });
+    if (wsP[addr] && typeof wsP[addr].v === 'number') { wsP[addr].t = 'n'; wsP[addr].z = 'YYYY-MM-DD'; }
+  }
+  wsP['!cols'] = cols.map(h => ({ wch: Math.min(Math.max(h.length + 2, 12), 28) }));
+  return wsP;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    ANALYSIS TAB — static summary cross-tabs (NOT live Excel PivotTables;
    SheetJS community edition cannot write pivot-cache/pivot-table XML parts).
    Computed once at export time from outputRows; filters are baked into the
-   numbers rather than being interactive dropdowns.
+   numbers rather than being interactive dropdowns. Kept as a reference for
+   what each of the 5 pivots (built from the Pivot Source tab) should show.
 ═══════════════════════════════════════════════════════════════════════════ */
 function buildAnalysisSheet(rows) {
   const wsA = {};
@@ -1201,7 +1234,8 @@ function buildAnalysisSheet(rows) {
   }
 
   setCell(curRow, 0, 'Analysis — static summary tables computed at export time (not live Excel PivotTables)'); curRow++;
-  setCell(curRow, 0, 'Filters noted above each table are baked into these numbers; re-generate the plan for different data.'); curRow += 2;
+  setCell(curRow, 0, 'Filters noted above each table are baked into these numbers; re-generate the plan for different data.'); curRow++;
+  setCell(curRow, 0, 'For a real, filterable PivotTable: go to the "Pivot Source" tab, click any cell, then Insert > PivotTable. Use the field layout shown above each table below as a guide.'); curRow += 2;
 
   const priorityOf = r => r.Priority || '';
   const ocrOf = r => r['Order Corrected Remark'] || '';
@@ -1427,10 +1461,12 @@ function exportToExcel() {
   XLSX.utils.book_append_sheet(wb, wsLT, 'LEAD TIME');
   XLSX.utils.book_append_sheet(wb, wsAppt, 'Appointments');
   XLSX.utils.book_append_sheet(wb, wsYest, 'Yesterday');
+  const wsPivotSrc = buildPivotSourceSheet(outputRows);
+  XLSX.utils.book_append_sheet(wb, wsPivotSrc, 'Pivot Source');
   const wsAnalysis = buildAnalysisSheet(outputRows);
   XLSX.utils.book_append_sheet(wb, wsAnalysis, 'Analysis');
   XLSX.writeFile(wb, 'Dispatch_Plan_Today_'+new Date().toISOString().slice(0,10)+'.xlsx');
-  log('✓ Excel exported with formulas + reference sheets (LEAD TIME, Appointments, Yesterday, Analysis)','ok');
+  log('✓ Excel exported with formulas + reference sheets (LEAD TIME, Appointments, Yesterday, Pivot Source, Analysis)','ok');
 }
 
 
