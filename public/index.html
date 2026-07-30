@@ -109,7 +109,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.15</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.16</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload each source tab as a separate Excel file → generates today's Dispatch Plan output</p>
   </header>
@@ -1125,6 +1125,13 @@ function buildPivotSourceSheet(rows) {
     if (wsP[addr] && typeof wsP[addr].v === 'number') { wsP[addr].t = 'n'; wsP[addr].z = 'YYYY-MM-DD'; }
   }
   wsP['!cols'] = cols.map(h => ({ wch: Math.min(Math.max(h.length + 2, 12), 28) }));
+  // Real AutoFilter on the full, unfiltered data — this is where genuine
+  // filter dropdowns for Source Check / customer_group (and every other
+  // column) actually work, since Excel needs the full range of values
+  // present to offer as filter options. The 5 Pivot sheets are already
+  // pre-aggregated to one filter combination, so there's nothing left to
+  // filter there — this is the sheet to filter on.
+  wsP['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: data.length, c: cols.length - 1 } }) };
   return wsP;
 }
 
