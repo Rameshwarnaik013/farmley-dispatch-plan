@@ -109,7 +109,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.17</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.18</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload each source tab as a separate Excel file → generates today's Dispatch Plan output</p>
   </header>
@@ -175,7 +175,7 @@ const CONDITIONS = [
   { sno:3,  col:'Final Dispatch Status, Dispatch_Status', rule:'If any one among Origin_Indore_Status, Origin_Purnea_Status, Origin_UD_Foods_Status contains Partial Dispatch, populate columns Dispatch_Status and Final Dispatch Status as Partial Dispatch. If none contain Partial Dispatch but any contains Pending, populate columns Dispatch_Status and Final Dispatch Status as Pending. Keep only rows where Final Dispatch Status is Partial Dispatch or Pending.' },
   { sno:4,  col:'CC',                       rule:'Concatenate Sales_Order_No + Item_Code from Dump tab.' },
   { sno:5,  col:'Day',                      rule:'VLOOKUP: Match Origin + Shipping State from Dump → LEAD TIME tab (Origin, Shipping State, Day). Fill the Day column from LEAD TIME.' },
-  { sno:6,  col:'Appt',                     rule:'If client_type is FK-Grocery-VS48860, FK-Hyperlocal-VS46867, or FK-Alpha-VS46867: VLOOKUP on Po_No in Appointments tab (PO-No → Appt date column). If client_type is "Now": Appt = Sales_Order_Date + 7.' },
+  { sno:6,  col:'Appt',                     rule:'If client_type is FK-Grocery-VS48860, FK-Hyperlocal-VS46867, or FK-Alpha-VS46867: VLOOKUP on Po_No in Appointments tab (PO-No → Appt date column). REVISED: if that cell is not a parseable date (and not a multi-date list), the raw text is now fetched as-is (e.g. "Cancelled", "Appt Not Required") instead of being dropped. If client_type is "Now": Appt = Sales_Order_Date + 7.' },
   { sno:7,  col:'Remark',                   rule:'Remark is looked up directly from Dispatch Plan_yesterday using the CC column match. Fetches the Remark column exactly as-is.' },
   { sno:10, col:'If Dispatched, then EDD',  rule:'= Remark + Day (Excel serial addition). Blank if Remark is a text value (e.g. "FTL 7 May Appt", "Close", "Appt Required").' },
   { sno:11, col:'If Dispatched, then EDD',  rule:'Special case — Airlines: If_Dispatched_EDD is still Remark + Day. (Condition 17 in sheet means Airlines EDD column = po_expiry_date, not the If_Dispatched_EDD column.)' },
@@ -415,10 +415,10 @@ async function run() {
         // Store the entire multi-date string as-is (text)
         apptVal = rawStr;
       } else {
-        // Single date — convert to serial
+        // Single value — convert to serial if it's a date, else keep the
+        // raw text as-is (e.g. "Cancelled", "Appt Not Required").
         const dt = toSerial(rawVal);
-        if (!dt) return;
-        apptVal = dt;
+        apptVal = dt ? dt : rawStr;
       }
       // Index under EVERY PO-like column value (handles numeric & string POs)
       poKeys.forEach(pk => {
@@ -1377,8 +1377,10 @@ function exportToExcel() {
       if (hasMulti) {
         apptExport.push({ PO_No: po, Appt_Date: rawStr }); // multi-date text as-is
       } else {
+        // Single value — export as a date serial if parseable, else keep
+        // the raw text as-is (e.g. "Cancelled", "Appt Not Required").
         const dt = toSerial(rawVal);
-        if (dt) apptExport.push({ PO_No: po, Appt_Date: dt });
+        apptExport.push({ PO_No: po, Appt_Date: dt ? dt : rawStr });
       }
     });
   }
