@@ -401,7 +401,13 @@ function downloadMasters() {
 
 function updateMasterStatus() {
   const el = document.getElementById('mtStatus'); if (!el) return;
-  if (!masters) { el.innerHTML = '<span class="dot" style="background:var(--warn)"></span>No masters loaded — freight ranking is skipped'; return; }
+  if (!masters) {
+    el.innerHTML = '<span class="dot" style="background:var(--warn)"></span>'
+      + (mastersError
+          ? 'Could not load the bundled master — ' + mastersError + '. Use “Replace from workbook”.'
+          : 'No masters loaded — freight ranking is skipped');
+    return;
+  }
   const pins = new Set((masters.pincode||[]).map(r=>r['Shipping Pincode'])).size;
   const colour = mtDirty ? 'var(--amber)' : 'var(--accent)';
   const src = mastersSource === 'bundled' ? 'Bundled with the app'
@@ -533,16 +539,26 @@ function switchTab(tab) {
    this browser wins over the bundled copy — that is the whole point of the
    Masters tab — and "Reset to bundled" discards those edits.
    run() awaits mastersReady, so a fast Generate click cannot race the fetch. */
+let mastersError = '';
 async function initMasters() {
+  mastersError = '';
   if (loadMastersFromStorage()) { mastersSource = 'browser'; return; }
   try {
     const res = await fetch(MASTER_BUNDLED, { cache: 'force-cache' });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    masters = unpackMasters(await res.json());
+    if (!res.ok) throw new Error('HTTP ' + res.status + ' fetching ' + MASTER_BUNDLED);
+    // A catch-all SPA rewrite will happily answer 200 with index.html when
+    // the file is missing. Parsing that as JSON throws a confusing error and
+    // the app silently ends up with no masters at all, so check first.
+    const text = await res.text();
+    if (text.trimStart().startsWith('<')) {
+      throw new Error(MASTER_BUNDLED + ' returned HTML, not JSON — the file is missing from the '
+        + 'deploy, or a catch-all rewrite is intercepting it');
+    }
+    masters = unpackMasters(JSON.parse(text));
     mastersSource = 'bundled';
   } catch (e) {
-    masters = null; mastersSource = '';
-    console.warn('Bundled masters unavailable:', e.message);
+    masters = null; mastersSource = ''; mastersError = e.message;
+    console.error('Bundled masters unavailable:', e);
   }
 }
 

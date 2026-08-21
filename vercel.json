@@ -2,12 +2,20 @@
   "buildCommand": null,
   "outputDirectory": "public",
   "rewrites": [
+    { "source": "/masters.json", "destination": "/masters.json" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
+        { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/masters.json",
+      "headers": [
+        { "key": "Content-Type", "value": "application/json; charset=utf-8" },
         { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
       ]
     }
