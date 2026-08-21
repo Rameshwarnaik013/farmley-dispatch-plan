@@ -6,11 +6,12 @@
 <title>Dispatch Plan Generator — Farmley</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
 :root{
   --bg:#0a0a0f;--surface:#111118;--surface2:#1a1a25;--border:#2a2a3a;
   --accent:#00e5a0;--accent2:#7c3aed;--warn:#ff4444;--text:#e8e8f0;--dim:#7070a0;
-  --mono:'Montserrat',sans-serif;--sans:'Montserrat',sans-serif;
+  --amber:#f0a020;
+  --mono:'JetBrains Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;--sans:'Montserrat',sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;}
@@ -64,7 +65,38 @@ input[type="file"]{display:none;}
 /* LOG */
 .log{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px;font-family:var(--mono);font-size:12px;line-height:1.8;max-height:180px;overflow-y:auto;display:none;}
 .log.visible{display:block;}
-.log-line{color:var(--dim);}.log-line.ok{color:var(--accent);}.log-line.err{color:var(--warn);}.log-line.info{color:#60a0ff;}
+/* MASTERS */
+.mt-load{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:20px;}
+.mt-status{font-family:var(--mono);font-size:11px;color:var(--dim);}
+.mt-status .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;vertical-align:middle;}
+.mt-tabs{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:20px;}
+.mt-tab{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;cursor:pointer;position:relative;overflow:hidden;transition:border-color .2s;}
+.mt-tab::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent2),var(--accent));opacity:0;transition:opacity .2s;}
+.mt-tab:hover{border-color:var(--accent);}
+.mt-tab.active{border-color:var(--accent);background:var(--surface2);}
+.mt-tab.active::before{opacity:1;}
+.mt-tab-name{font-size:12px;font-weight:700;margin-bottom:5px;}
+.mt-tab.active .mt-tab-name{color:var(--text);}
+.mt-tab:not(.active) .mt-tab-name{color:var(--dim);}
+.mt-tab-count{font-family:var(--mono);font-size:11px;color:var(--dim);}
+.mt-panel{background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.mt-toolbar{display:flex;gap:10px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap;}
+.mt-search{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;width:320px;color:var(--dim);}
+.mt-search input{background:transparent;border:none;outline:none;color:var(--text);font-family:var(--mono);font-size:12px;width:100%;}
+.mt-count{font-family:var(--mono);font-size:11px;color:var(--dim);}
+.btn-sm{font-size:12px;padding:8px 16px;}
+.mt-grid-wrap{max-height:520px;overflow:auto;}
+.mt-grid{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px;}
+.mt-grid th{position:sticky;top:0;background:var(--surface2);color:var(--dim);font-size:10px;letter-spacing:.6px;text-transform:uppercase;text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap;font-weight:500;z-index:1;}
+.mt-grid td{padding:0;border-bottom:1px solid var(--surface2);}
+.mt-grid tr.new-row td{background:rgba(0,229,160,.06);}
+.mt-grid td input{width:100%;background:transparent;border:1px solid transparent;outline:none;color:var(--text);font-family:var(--mono);font-size:11px;padding:7px 11px;border-radius:4px;}
+.mt-grid td input:hover{border-color:var(--border);}
+.mt-grid td input:focus{border-color:var(--accent);background:var(--bg);}
+.mt-del{background:transparent;border:none;cursor:pointer;color:var(--dim);padding:7px 10px;display:flex;align-items:center;}
+.mt-del:hover{color:var(--warn);}
+.mt-foot{padding:12px 18px;border-top:1px solid var(--border);font-family:var(--mono);font-size:11px;color:var(--dim);display:flex;align-items:center;gap:10px;}
+.log-line{color:var(--dim);}.log-line.ok{color:var(--accent);}.log-line.err{color:var(--warn);}.log-line.info{color:#60a0ff;}.log-line.warn{color:#f0a020;}
 
 /* PREVIEW */
 .preview-section{display:none;}
@@ -109,14 +141,15 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-07-27.19</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-08-21.21</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload each source tab as a separate Excel file → generates today's Dispatch Plan output</p>
   </header>
 
   <div class="nav-tabs">
     <button class="nav-tab active" onclick="switchTab('generator')">Generator</button>
-    <button class="nav-tab" onclick="switchTab('conditions')">Conditions Applied</button>
+    <button class="nav-tab" onclick="switchTab('masters')">Masters</button>
+    <button class="nav-tab" onclick="switchTab('conditions')">Conditions</button>
   </div>
 
   <!-- ═══ TAB 1: GENERATOR ═══════════════════════════════════════════════ -->
@@ -149,7 +182,39 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
     </div>
   </div>
 
-  <!-- ═══ TAB 2: CONDITIONS ═══════════════════════════════════════════════ -->
+  <!-- ═══ TAB: MASTERS ════════════════════════════════════════════════════ -->
+  <div class="tab-content" id="tab-masters">
+    <div class="section-title">Master Data</div>
+    <div class="section-sub">Edit rate and routing masters in place — changes are kept in this browser and feed straight into the next run.</div>
+
+    <div class="mt-load" id="mtLoad">
+      <label class="btn btn-primary" style="cursor:pointer">
+        <input type="file" accept=".xlsx,.xls" onchange="loadMasters(this)">
+        ⬆ Load master workbook
+      </label>
+      <span class="btn btn-secondary" onclick="downloadMasters()">⬇ Download master</span>
+      <span class="btn btn-secondary" onclick="clearMasters()">✕ Clear stored</span>
+      <span id="mtStatus" class="mt-status"></span>
+    </div>
+
+    <div class="mt-tabs" id="mtTabs"></div>
+
+    <div class="mt-panel" id="mtPanel" style="display:none">
+      <div class="mt-toolbar">
+        <div class="mt-search">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+          <input id="mtSearch" type="text" placeholder="Search all columns…" oninput="renderMasterGrid()">
+        </div>
+        <span class="mt-count" id="mtCount"></span>
+        <div style="flex-grow:1"></div>
+        <span class="btn btn-ghost btn-sm" onclick="addMasterRow()">+ Add row</span>
+      </div>
+      <div class="mt-grid-wrap"><table class="mt-grid" id="mtGrid"></table></div>
+      <div class="mt-foot" id="mtFoot"></div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: CONDITIONS ═════════════════════════════════════════════════ -->
   <div class="tab-content" id="tab-conditions">
     <div class="section-title">Conditions Applied in Code</div>
     <div class="section-sub">Every rule from the CONDITIONS tab — and how it maps to code logic.</div>
@@ -165,6 +230,7 @@ const files = { dump:null, leadtime:null, appointments:null, yesterday:null };
 let outputRows = [];
 let logLines = [];
 let refData = { leadtime:[], appointments:[], yesterday:[] };
+let freightRows = [];   // SO-level freight comparison, built by runFreight()
 
 /* ═══════════════════════════════════════════════════════════════════════════
    CONDITIONS DATA (for display)
@@ -200,7 +266,217 @@ const CONDITIONS = [
   { sno:31, col:'Expected Source',          rule:'REVISED — resolved by customer_group, in this order. (1) CPC KPKB or CSD: CFA logic is ignored entirely and the item-derived source is used. (2) E-Commerce or Quick Commerce: returns the Origin as-is, since the Branch already governs it. (3) Otherwise, if Is CFA = "Yes", returns the serving CFA — "CFA GGN" or "CFA BLR". (4) Otherwise the item-derived source. Item-derived source = Item_Group Makhana → "Purnea"; Item_Group Munchies with item_parent Makhana Munchies → "UD Foods"; Item_Group Munchies with item_parent Munchies Waves or Munchies Waves-Airlines → "Rebela"; everything else → "Indore".' },
   { sno:32, col:'Order Corrected Remark', rule:'REVISED — sits next to CFA Serviceability Check. Tags the order with the CFA that could dispatch it under the CFA logic (Item_Code in the 77-code common CFA list AND Shipping State serviceable): "CFA GGN" or "CFA BLR". When no CFA applies it now falls back to the item-derived source instead of being left blank, for ALL customer groups: Item_Group Makhana → "Purnea"; Munchies with item_parent Makhana Munchies → "UD Foods"; Munchies with item_parent Munchies Waves or Munchies Waves-Airlines → "Rebela"; everything else → "Indore".' },
   { sno:33, col:'Source Check',            rule:'REVISED — "TRUE" only when all three agree: Expected Source = Origin = Order Corrected Remark (the branch-aware corrected source). Otherwise "FALSE". The comparison is canonical — parentheses, case and extra spaces are ignored — so the Origin spelling "CFA (GGN)" counts as equal to "CFA GGN". FALSE therefore flags a row where the actual Origin, the expected source, and the corrected source do not all line up.' },
+  { sno:34, col:'charge weight',           rule:'VLOOKUP on Item_Code into the "sku_charge weight" master tab. The column fetched depends on Origin: Origin = Indore → column "Indore"; Origin = Purnea → column "Purnia"; every other Origin (CFA GGN, CFA BLR, UD Foods, Kundli, Rebela) falls back to column "Final Charge weight", which is what the manual Excel used for all rows. Where that tab has more than one row for the same Item_Code, the row whose Locations matches the Origin wins; otherwise the first row wins (plain VLOOKUP behaviour). Blank when the Item_Code is absent from that tab.' },
+  { sno:35, col:'Boxes*charge weight',     rule:'= Boxes × charge weight, per dispatch-plan row. Blank when charge weight is blank — it is NOT treated as zero, so a missing SKU cannot silently understate an SO total.' },
+  { sno:36, col:'SO-level aggregation',    rule:'Rows are grouped by Sales_Order_No. Charge weight for the SO = SUM(Boxes*charge weight); Invoice value for the SO = SUM(Final Amount). Customer, Shipping Pincode and Origin are taken from the first row of the SO. These two sums are the only inputs the freight engine uses from the dispatch plan.' },
+  { sno:37, col:'Logistic Partner 1-5',    rule:'VLOOKUP on Shipping Pincode into "Logistics Master _sheet". One row per pincode x partner, EACH WITH ITS OWN Zone and TYPE (Normal/ODA) — verified necessary: across the 1,535 pincodes served by all four current carriers, zero share a zone string (Delhivery uses North/West, Safexpress NORTH 1/NORTH 2, DP World hub codes, Xpressbees North/West) and TYPE disagrees on 31% of pincodes. A single Zone/TYPE per pincode cannot work. Partners absent from the pincode row are not quoted. Rows with STATUS = 0 are treated as not serviceable and excluded.' },
+  { sno:38, col:'Lowest 1 / Lowest 2',                  rule:'For each partner named on the pincode row, the rate is looked up in "Logistic cost _master" by Logistic Partner + Origin + Shipping Zone. Origins are compared canonically, so the dispatch plan spelling "CFA (GGN)" matches the cost master spelling "CFA GGN" and "Purnea" matches "Purnia". Cost = MAX(Min Charge, Min Weight × Rate, ChargeWeight × Rate) + Appointment + FOV + Fuel + Docket + ODA, with per-partner constants (Delhivery 30kg/₹0/0% fuel/₹75 docket/₹700 ODA; Safexpress 20kg/₹250/10%/₹100/₹750 and FOV floored at ₹100; Xpressbees 30kg/₹350/10%/₹50, appointment = MAX(30, charge weight) and a weight-banded ODA of ₹1,050–₹8,000; DP World 10kg/₹350/10%/₹50/₹700). Appointment applies only when the customer is marked Appointment Applicable in the "customer" tab. A partner is skipped when "Disabled Customers_Master" lists it against that customer. Lowest 1 = cheapest partner and Lowest Score 1 its landed cost; Lowest 2 / Lowest Score 2 the runner-up. All four are repeated on every item row of the SO, and the full per-partner breakdown lands on the "Freight Comparison" sheet.' },
 ];
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MASTER DATA STORE
+   Five tables parsed once from the Pincode & Rate Master workbook, then kept
+   in localStorage so the daily run only needs the Dump. Editable in the
+   Masters tab; exportable back to .xlsx.
+═══════════════════════════════════════════════════════════════════════════ */
+const MASTER_TABLES = [
+  { key:'pincode',  sheet:'Logistics Master _sheet',    name:'Logistics Master',
+    cols:['Shipping Pincode','Facility City','Facility State','Zone','TYPE','Logistic Partner','STATUS'] },
+  { key:'cost',     sheet:'Logistic cost _master',      name:'Logistic Cost',
+    cols:['Origin','Shipping Zone','Rate','Logistic Partner'] },
+  { key:'disabled', sheet:'Disabled Customers_Master',  name:'Disabled Customers',
+    cols:['Customer Name','Service Type','Reason','Logistic Partner'] },
+  { key:'sku',      sheet:'sku_charge weight',          name:'SKU Charge Weight',
+    cols:['Locations','Item ID','Item Name','Final Charge weight','Indore','Purnia'] },
+  { key:'customer', sheet:'customer',                   name:'Customer Appointments',
+    cols:['Customer','Appointment Applicable'] },
+];
+const MASTER_LS_KEY = 'farmley.dispatch.masters.v1';
+let masters = null;        // {pincode:[...], cost:[...], ...}
+let mtActive = 'pincode';
+let mtDirty  = false;
+
+/* Stored COLUMNAR ({cols, rows:[[...]]}) rather than as objects. The pincode
+   table is ~57k rows x 7 keys; repeating those key names per row costs ~6 MB
+   of pure JSON overhead and pushes the payload past the 5-10 MB localStorage
+   quota. Packing to positional arrays keeps a full master near ~2.5 MB. */
+function packMasters(m) {
+  const out = {};
+  MASTER_TABLES.forEach(t => {
+    out[t.key] = { cols: t.cols, rows: (m[t.key]||[]).map(r => t.cols.map(c => r[c] ?? '')) };
+  });
+  return out;
+}
+function unpackMasters(p) {
+  const out = {};
+  MASTER_TABLES.forEach(t => {
+    const blk = p[t.key];
+    if (!blk) { out[t.key] = []; return; }
+    if (Array.isArray(blk)) { out[t.key] = blk; return; }   // legacy object form
+    const cols = blk.cols || t.cols;
+    out[t.key] = (blk.rows||[]).map(arr => {
+      const o = {}; cols.forEach((c,i) => { o[c] = arr[i]; }); return o;
+    });
+  });
+  return out;
+}
+
+function loadMastersFromStorage() {
+  try {
+    const raw = localStorage.getItem(MASTER_LS_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.pincode) return false;
+    masters = unpackMasters(parsed);
+    return true;
+  } catch (e) { return false; }
+}
+function saveMastersToStorage() {
+  try {
+    localStorage.setItem(MASTER_LS_KEY, JSON.stringify(packMasters(masters)));
+    mtDirty = false; return true;
+  } catch (e) {
+    // Quota is the realistic failure here — say so plainly rather than
+    // letting the user believe their edits were kept.
+    const quota = /quota|exceed/i.test(e.name + ' ' + e.message);
+    alert(quota
+      ? 'This browser could not store the master — it is too large for local storage.\n\n'
+        + 'Your edits are still live for this session and "Download master" will include them, '
+        + 'but they will not survive a refresh.'
+      : 'Could not save masters to this browser: ' + e.message);
+    return false;
+  }
+}
+
+async function loadMasters(input) {
+  const f = input.files[0]; if (!f) return;
+  try {
+    const wb = await readWB(f);
+    const next = {};
+    const missing = [];
+    MASTER_TABLES.forEach(t => {
+      const rows = sheetByName(wb, t.sheet, t.name);
+      if (!rows) { missing.push(t.sheet); next[t.key] = []; return; }
+      next[t.key] = rows.map(r => {
+        const o = {};
+        t.cols.forEach(c => { o[c] = pickCol(r, c); });
+        return o;
+      });
+    });
+    if (missing.length === MASTER_TABLES.length) {
+      alert('That workbook has none of the expected master tabs.\nExpected: ' + MASTER_TABLES.map(t=>t.sheet).join(', '));
+      return;
+    }
+    masters = next;
+    saveMastersToStorage();
+    renderMasterTabs(); renderMasterGrid(); updateMasterStatus();
+    if (missing.length) alert('Loaded, but these tabs were not found:\n' + missing.join('\n'));
+  } catch (e) { alert('Could not read that workbook: ' + e.message); }
+}
+
+// Tolerant column pick — master tabs vary in spacing/case between exports.
+function pickCol(row, want) {
+  if (row[want] !== undefined) return row[want];
+  const k = Object.keys(row).find(x => nor(x).replace(/[\s_]+/g,'') === nor(want).replace(/[\s_]+/g,''));
+  return k !== undefined ? row[k] : '';
+}
+
+function clearMasters() {
+  if (!confirm('Remove the stored masters from this browser? The workbook file is untouched.')) return;
+  localStorage.removeItem(MASTER_LS_KEY);
+  masters = null; mtDirty = false;
+  renderMasterTabs(); renderMasterGrid(); updateMasterStatus();
+}
+
+function downloadMasters() {
+  if (!masters) { alert('No masters loaded yet.'); return; }
+  const wb = XLSX.utils.book_new();
+  MASTER_TABLES.forEach(t => {
+    const ws = XLSX.utils.json_to_sheet(masters[t.key] || [], { header: t.cols });
+    ws['!cols'] = t.cols.map(h => ({ wch: Math.min(Math.max(h.length + 2, 12), 34) }));
+    if ((masters[t.key]||[]).length)
+      ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s:{r:0,c:0}, e:{r:masters[t.key].length, c:t.cols.length-1} }) };
+    XLSX.utils.book_append_sheet(wb, ws, t.sheet.slice(0,31));
+  });
+  XLSX.writeFile(wb, 'Pincode and Rate Master (edited) '+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+
+function updateMasterStatus() {
+  const el = document.getElementById('mtStatus'); if (!el) return;
+  if (!masters) { el.innerHTML = '<span class="dot" style="background:var(--warn)"></span>No masters loaded — freight ranking is skipped'; return; }
+  const pins = new Set((masters.pincode||[]).map(r=>r['Shipping Pincode'])).size;
+  const colour = mtDirty ? 'var(--amber)' : 'var(--accent)';
+  el.innerHTML = `<span class="dot" style="background:${colour}"></span>`
+    + (mtDirty ? 'Unsaved edits · ' : 'Saved · ')
+    + `${pins.toLocaleString()} pincodes · ${(masters.cost||[]).length} rate rows · ${(masters.customer||[]).length} customers`;
+}
+
+function renderMasterTabs() {
+  const el = document.getElementById('mtTabs'); if (!el) return;
+  el.innerHTML = '';
+  if (!masters) return;
+  MASTER_TABLES.forEach(t => {
+    const d = document.createElement('div');
+    d.className = 'mt-tab' + (t.key === mtActive ? ' active' : '');
+    d.onclick = () => { mtActive = t.key; document.getElementById('mtSearch').value=''; renderMasterTabs(); renderMasterGrid(); };
+    d.innerHTML = `<div class="mt-tab-name">${t.name}</div>
+      <div class="mt-tab-count">${(masters[t.key]||[]).length.toLocaleString()} rows</div>`;
+    el.appendChild(d);
+  });
+}
+
+const MT_PAGE = 200;   // never paint more than this — the pincode table is 57k rows
+function renderMasterGrid() {
+  const panel = document.getElementById('mtPanel');
+  if (!masters) { if (panel) panel.style.display='none'; return; }
+  panel.style.display = 'block';
+  const t = MASTER_TABLES.find(x => x.key === mtActive);
+  const all = masters[t.key] || [];
+  const q = nor(document.getElementById('mtSearch').value);
+  const rows = q ? all.filter(r => t.cols.some(c => nor(r[c]).includes(q))) : all;
+  const shown = rows.slice(0, MT_PAGE);
+
+  const grid = document.getElementById('mtGrid');
+  let html = '<thead><tr><th style="width:44px"></th>'
+    + t.cols.map(c=>`<th>${c}</th>`).join('') + '<th style="width:44px"></th></tr></thead><tbody>';
+  shown.forEach(r => {
+    const i = all.indexOf(r);
+    html += `<tr${r.__new?' class="new-row"':''}><td style="padding:0 12px;color:var(--dim)">${i+1}</td>`
+      + t.cols.map(c => `<td><input value="${String(r[c] ?? '').replace(/"/g,'&quot;')}" oninput="editMasterCell(${i},'${c.replace(/'/g,"\\'")}',this.value)"></td>`).join('')
+      + `<td><button class="mt-del" title="Delete row" onclick="deleteMasterRow(${i})">
+           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M10 11v6M14 11v6"></path></svg>
+         </button></td></tr>`;
+  });
+  grid.innerHTML = html + '</tbody>';
+
+  document.getElementById('mtCount').textContent =
+    q ? `${rows.length.toLocaleString()} of ${all.length.toLocaleString()} rows`
+      : `${all.length.toLocaleString()} rows`;
+  document.getElementById('mtFoot').innerHTML = rows.length > MT_PAGE
+    ? `<span style="color:var(--amber)">Showing first ${MT_PAGE} of ${rows.length.toLocaleString()} matches — search to narrow.</span>`
+    : `<span>All ${rows.length.toLocaleString()} matching rows shown.</span>`;
+  updateMasterStatus();
+}
+
+function editMasterCell(i, col, val) {
+  masters[MASTER_TABLES.find(x=>x.key===mtActive).key][i][col] = val;
+  mtDirty = true; saveMastersToStorage(); updateMasterStatus();
+}
+function addMasterRow() {
+  const t = MASTER_TABLES.find(x=>x.key===mtActive);
+  const blank = { __new:true }; t.cols.forEach(c => blank[c] = '');
+  masters[t.key].unshift(blank);
+  mtDirty = true; saveMastersToStorage();
+  document.getElementById('mtSearch').value = '';
+  renderMasterTabs(); renderMasterGrid();
+  const first = document.querySelector('#mtGrid tbody tr input'); if (first) first.focus();
+}
+function deleteMasterRow(i) {
+  const t = MASTER_TABLES.find(x=>x.key===mtActive);
+  masters[t.key].splice(i,1);
+  mtDirty = true; saveMastersToStorage();
+  renderMasterTabs(); renderMasterGrid();
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    UPLOAD CARDS
@@ -248,7 +524,16 @@ function switchTab(tab) {
   document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-'+tab).classList.add('active');
   event.target.classList.add('active');
+  if (tab === 'masters') { renderMasterTabs(); renderMasterGrid(); updateMasterStatus(); }
 }
+
+/* Restore masters saved by a previous session so the daily run only needs
+   the Dump. Runs once, after the DOM and all helpers are defined. */
+(function bootMasters(){
+  loadMastersFromStorage();
+  updateMasterStatus();
+  renderMasterTabs();
+})();
 
 /* ═══════════════════════════════════════════════════════════════════════════
    FILE HANDLING
@@ -284,6 +569,34 @@ async function readWB(file) {
 
 function sheet2json(wb, idx=0) {
   return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[idx]], {defval:''});
+}
+
+// Fetch a sheet by name (case/space-insensitive), trying each alias in turn.
+// Returns null when the workbook has no such tab, so callers can degrade.
+function sheetByName(wb, ...names) {
+  if (!wb) return null;
+  const key = s => String(s||'').replace(/[\s_]+/g,'').toLowerCase();
+  for (const n of names) {
+    const hit = wb.SheetNames.find(s => key(s) === key(n));
+    if (hit) return XLSX.utils.sheet_to_json(wb.Sheets[hit], {defval:''});
+  }
+  return null;
+}
+
+// Charge weight for one dispatch-plan row (Condition 34). Origin selects the
+// column: Indore→"Indore", Purnea→"Purnia", anything else→"Final Charge weight".
+const ORIGIN_SKU_COL = { 'indore':'indore', 'purnea':'purnia', 'purnia':'purnia' };
+const ORIGIN_SKU_LOC = { 'indore':'indore', 'purnea':'purnia', 'purnia':'purnia',
+                         'ud foods':'ud foods', 'rebela':'tamil nadu' };
+function chargeWeightFor(skuMap, itemCode, origin) {
+  const rows = skuMap[nor(itemCode)];
+  if (!rows || !rows.length) return '';
+  const wantLoc = ORIGIN_SKU_LOC[nor(origin)];
+  const row = (wantLoc && rows.find(r => r.loc === wantLoc)) || rows[0];
+  const col = ORIGIN_SKU_COL[nor(origin)];          // undefined for CFA/UD/Kundli/Rebela
+  const v = col ? row[col] : null;
+  const out = (v !== null && v !== undefined) ? v : row.final;
+  return (out === null || out === undefined) ? '' : out;
 }
 
 // Convert any date representation → Excel serial integer (or null)
@@ -368,6 +681,26 @@ async function run() {
   const ltData    = ltWB ? sheet2json(ltWB, 0) : [];
   const apptData  = apWB ? sheet2json(apWB, 0) : [];
   const yesterday = yWB  ? sheet2json(yWB, 0)  : [];
+
+  /* ── CONDITION 34: SKU charge-weight map (Item_Code → per-origin kg) ──
+     The SKU file legitimately carries the same Item_Code under several
+     Locations, so keep every row and pick the Location-matching one at
+     lookup time; rows[0] is the plain-VLOOKUP fallback. */
+  const skuData = (masters && masters.sku) ? masters.sku : [];
+  const skuMap = {};
+  skuData.forEach(r => {
+    const code = nor(r['Item ID'] ?? r['Item_Code'] ?? r['Item Code']);
+    if (!code) return;
+    const num = v => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+    (skuMap[code] = skuMap[code] || []).push({
+      loc:    nor(r['Locations'] ?? r['Location']),
+      final:  num(r['Final Charge weight']),
+      indore: num(r['Indore']),
+      purnia: num(r['Purnia'] ?? r['Purnea']),
+    });
+  });
+  if (skuData.length) log(`Masters: ${Object.keys(skuMap).length} SKU codes · ${(masters.pincode||[]).length.toLocaleString()} pincode rows · ${(masters.cost||[]).length} rate rows`,'ok');
+  else log('No masters loaded — charge weight and Lowest 1 / Lowest 2 will be blank (Masters tab)','info');
 
   log(`Dump: ${dump.length} rows | Lead Time: ${ltData.length} | Appointments: ${apptData.length} | Yesterday: ${yesterday.length}`,'ok');
   if (!ltData.length)    log('LEAD TIME not uploaded — Day defaults to 0','info');
@@ -931,6 +1264,13 @@ async function run() {
     /* CONDITION 17: Merge */
     const merge = soNo + String(row[COL.Branch]||'');
 
+    /* CONDITION 34/35: charge weight and Boxes*charge weight.
+       Both stay BLANK (not 0) when the Item_Code is absent from the SKU
+       file, so a missing SKU cannot silently understate the SO total. */
+    const chargeWt = chargeWeightFor(skuMap, itemCode, origin);
+    const boxesNum = parseFloat(row['Boxes']);
+    const boxCw = (chargeWt === '' || isNaN(boxesNum)) ? '' : chargeWt * boxesNum;
+
     const fmtD = s => s ? serialToDateStr(s) : '';
     const fmtRemark = () => {
       if (remarkRaw==='') return '';
@@ -1017,10 +1357,20 @@ async function run() {
       'CFA Serviceability Check': cfaServiceability,
       'Order Corrected Remark': orderCorrectedRemark,
       'Source Check': sourceCheck,
+      'charge weight': chargeWt,
+      'Boxes*charge weight': boxCw,
+      'Lowest 1': '',        // filled per-SO by runFreight()
+      'Lowest Score 1': '',
+      'Lowest 2': '',
+      'Lowest Score 2': '',
     });
   });
 
   outputRows = result;
+
+  /* CONDITIONS 36-38: SO-level freight ranking → Lowest 1/2 on every row */
+  runFreight(result);
+
   const cfaGurgaonCount = result.filter(r => r.Origin === 'CFA (GGN)').length;
   const cfaBangaloreCount = result.filter(r => r.Origin === 'CFA (BLR)').length;
   const fkRows = result.filter(r => ['fk-grocery-vs48860','fk-hyperlocal-vs46867','fk-alpha-vs46867'].includes(nor(r.client_type)));
@@ -1038,6 +1388,153 @@ async function run() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   FREIGHT ENGINE (Conditions 36-38)
+   Groups the plan by Sales_Order_No, quotes every logistic partner that
+   serves the SO's pincode, and writes back Lowest 1 / Lowest Score 1 /
+   Lowest 2 / Lowest Score 2 onto every item row of that SO — the same four
+   column names the RPC Indore workbook uses.
+
+   Reads the five master tables (see MASTER_TABLES). Per-partner cost
+   CONSTANTS are not in the cost master — that tab carries Rate only — so
+   they live in PARTNER_CONST below, lifted from the RPC Indore workbook.
+
+   Validated 2026-08-21 against "RPC Indore Freight Calculation - NEW (7)"
+   using this exact master workbook: Delhivery 16/16, Safexpress 752/753,
+   Xpressbees 298/299, DP World 234/235 on rows whose customer exists in the
+   customer master. Every coverage difference traces to deliberate master
+   data — STATUS=0 rows, and the Disabled Customers list replacing the old
+   hardcoded "Delhivery = Zepto Limited only" rule.
+═══════════════════════════════════════════════════════════════════════════ */
+const PARTNER_CONST = {
+  'delhivery' : { minWt:30, minChg:0,   appt:250, apptPerKg:false, fovPct:0.1, fovMin:0,   fuelPct:0,  docket:75,  oda:700 },
+  'safexpress': { minWt:20, minChg:250, appt:250, apptPerKg:false, fovPct:0.1, fovMin:100, fuelPct:10, docket:100, oda:750 },
+  'xpressbees': { minWt:30, minChg:350, appt:30,  apptPerKg:true,  fovPct:0.1, fovMin:0,   fuelPct:10, docket:50,  oda:'slab' },
+  'dp world'  : { minWt:10, minChg:350, appt:250, apptPerKg:false, fovPct:0.1, fovMin:0,   fuelPct:10, docket:50,  oda:700 },
+};
+// Xpressbees ODA bands: charge weight strictly less than `under` -> charge.
+const XB_ODA_SLAB = [
+  {under:51,charge:1050},{under:101,charge:1150},{under:251,charge:1400},
+  {under:501,charge:1550},{under:1001,charge:2000},{under:2001,charge:2200},
+  {under:Infinity,charge:8000},
+];
+// Origin spellings differ between the plan and the cost master
+// ("CFA (GGN)" vs "CFA GGN", "Purnea" vs "Purnia"). Compare canonically.
+const canonOrigin = s => nor(s).replace(/[()]/g,'').replace(/\s+/g,' ').trim()
+                          .replace(/^purnea$/,'purnia');
+
+function runFreight(rows) {
+  freightRows = [];
+  if (!masters) { log('No masters loaded — Lowest 1 / Lowest 2 left blank (load them in the Masters tab)','info'); return; }
+
+  /* Pincode -> serving partners, each with its OWN zone and TYPE.
+     STATUS 0 disables that pincode for that partner. First row wins on
+     duplicate (pincode, partner) pairs, matching VLOOKUP. */
+  const PIN = {};
+  (masters.pincode||[]).forEach(r => {
+    if (String(r['STATUS']).trim() === '0') return;
+    const pc = String(parseInt(r['Shipping Pincode'],10) || '');
+    if (!pc || pc === 'NaN') return;
+    const partner = String(r['Logistic Partner']||'').trim();
+    if (!partner) return;
+    const list = PIN[pc] = PIN[pc] || [];
+    if (list.some(x => nor(x.partner) === nor(partner))) return;
+    list.push({ partner, zone:String(r['Zone']||'').trim(), type:String(r['TYPE']||'').trim() });
+  });
+
+  /* partner|origin|zone -> rate */
+  const RATE = {};
+  (masters.cost||[]).forEach(r => {
+    const k = nor(r['Logistic Partner'])+'|'+canonOrigin(r['Origin'])+'|'+nor(r['Shipping Zone']);
+    if (RATE[k] === undefined) RATE[k] = parseFloat(r['Rate']);
+  });
+
+  /* customer|partner -> denied */
+  const DENY = new Set();
+  (masters.disabled||[]).forEach(r => {
+    if (nor(r['Service Type']) === 'no')
+      DENY.add(nor(r['Customer Name'])+'|'+nor(r['Logistic Partner']));
+  });
+
+  /* customer -> appointment applicable */
+  const APPT = {};
+  (masters.customer||[]).forEach(r => { APPT[nor(r['Customer'])] = nor(r['Appointment Applicable']) === 'yes'; });
+
+  function quote(partner, zone, type, origin, cw, inv, apptApplicable) {
+    const k = PARTNER_CONST[nor(partner)];
+    const rate = RATE[nor(partner)+'|'+canonOrigin(origin)+'|'+nor(zone)];
+    if (!k || rate === undefined || isNaN(rate)) return null;
+    const basic = Math.max(k.minChg, k.minWt * rate, cw * rate);
+    const appt  = !apptApplicable ? 0 : (k.apptPerKg ? Math.max(k.appt, cw) : k.appt);
+    const fov   = Math.max(k.fovMin, inv * k.fovPct / 100);
+    const fuel  = basic * k.fuelPct / 100;
+    let oda = 0;
+    if (nor(type) === 'oda')
+      oda = k.oda === 'slab' ? (XB_ODA_SLAB.find(b => cw < b.under) || {charge:0}).charge : k.oda;
+    return { total: basic + appt + fov + fuel + k.docket + oda,
+             basic, appt, fov, fuel, docket:k.docket, oda, rate, zone, type };
+  }
+
+  /* CONDITION 36: group by Sales_Order_No */
+  const groups = {};
+  rows.forEach(r => {
+    const so = r.Sales_Order_No; if (!so) return;
+    const g = groups[so] = groups[so] || { so, rows:[], cw:0, inv:0, cwSeen:false,
+      customer:r.Customer, pincode:r['Shipping Pincode'], origin:r.Origin };
+    g.rows.push(r);
+    const b = parseFloat(r['Boxes*charge weight']); if (!isNaN(b)) { g.cw += b; g.cwSeen = true; }
+    const f = parseFloat(r['Final Amount']);        if (!isNaN(f)) g.inv += f;
+  });
+
+  let quoted = 0, noPartner = 0, noWeight = 0;
+  Object.values(groups).forEach(g => {
+    const pc = String(parseInt(g.pincode,10) || '');
+    const apptApplicable = APPT[nor(g.customer)] === true;
+    let offers = [];
+    if (!g.cwSeen || g.cw <= 0) noWeight++;
+    else {
+      offers = (PIN[pc] || [])
+        .filter(s => !DENY.has(nor(g.customer)+'|'+nor(s.partner)))
+        .map(s => { const q = quote(s.partner, s.zone, s.type, g.origin, g.cw, g.inv, apptApplicable);
+                    return q ? Object.assign({partner:s.partner}, q) : null; })
+        .filter(Boolean)
+        .sort((a,b) => a.total - b.total);
+      if (offers.length) quoted++; else noPartner++;
+    }
+
+    const r2 = v => Math.round(v*100)/100;
+    const L1 = offers[0] ? offers[0].partner : '';
+    const L2 = offers[1] ? offers[1].partner : '';
+    const S1 = offers[0] ? r2(offers[0].total) : '';
+    const S2 = offers[1] ? r2(offers[1].total) : '';
+    g.rows.forEach(r => {
+      r['Lowest 1'] = L1; r['Lowest Score 1'] = S1;
+      r['Lowest 2'] = L2; r['Lowest Score 2'] = S2;
+    });
+
+    const fr = { 'SO No':g.so, Customer:g.customer, Pincode:g.pincode, Origin:g.origin,
+                 'Charge weight': g.cwSeen ? Math.round(g.cw*1000)/1000 : '',
+                 'Invoice value': r2(g.inv),
+                 'Appointment Applicable': APPT[nor(g.customer)] === undefined ? 'Not in master' : (apptApplicable?'Yes':'No') };
+    for (let i=0; i<5; i++) {
+      const o = offers[i];
+      fr['Partner '+(i+1)]         = o ? o.partner : '';
+      fr['Partner '+(i+1)+' Zone'] = o ? o.zone : '';
+      fr['Partner '+(i+1)+' Type'] = o ? o.type : '';
+      fr['Partner '+(i+1)+' Rate'] = o ? o.rate : '';
+      fr['Partner '+(i+1)+' Cost'] = o ? r2(o.total) : '';
+    }
+    fr['Lowest 1'] = L1; fr['Lowest Score 1'] = S1;
+    fr['Lowest 2'] = L2; fr['Lowest Score 2'] = S2;
+    fr.Saving = (offers[0] && offers[1]) ? r2(offers[1].total - offers[0].total) : '';
+    freightRows.push(fr);
+  });
+
+  log(`Freight: ${quoted} SOs ranked | ${noPartner} with no serviceable partner | ${noWeight} with no charge weight`,'ok');
+  const unknown = freightRows.filter(f => f['Appointment Applicable'] === 'Not in master').length;
+  if (unknown) log(`⚠ ${unknown} SOs have a customer missing from the customer master — appointment charge assumed 0`,'warn');
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    RENDER TABLE (preview columns only)
 ═══════════════════════════════════════════════════════════════════════════ */
 const PREVIEW_COLS = [
@@ -1046,7 +1543,7 @@ const PREVIEW_COLS = [
   'Final Dispatch Status','Dispatch_Status','If Dispatched, then EDD','EDD',
   'Pending Kgs','Origin','Shipping State','Day','Customer','Item_Code','Branch',
   'Rea','Is CFA','Expected Source','CFA Serviceability Check','Order Corrected Remark',
-  'Source Check'
+  'Source Check','charge weight','Lowest 1','Lowest Score 1','Lowest 2','Lowest Score 2'
 ];
 
 function renderTable(rows) {
@@ -1086,7 +1583,9 @@ const EXPORT_COLS = [
   'Origin_Purnea_Status','Origin_UD_Foods_Status','DATE(tso.sales_order_confirmation_date)',
   'owner','Workflow_State','purpose','Sales_Order_Status','Delivery_Date','Multi GRN',
   'Merge','CFA Check','Is CFA','Expected Source','CFA Serviceability Check',
-  'Order Corrected Remark','Source Check'
+  'Order Corrected Remark','Source Check',
+  'charge weight','Boxes*charge weight',
+  'Lowest 1','Lowest Score 1','Lowest 2','Lowest Score 2'
 ];
 
 const DATE_COLS = new Set(['Sales_Order_Date','po_expiry_date','Appt','Remark','If Dispatched, then EDD','Delivery_Date','DATE(tso.sales_order_confirmation_date)']);
@@ -1094,7 +1593,8 @@ const NUMERIC_COLS = new Set([
   'Origin Kgs','Pending Qty','Pending Kgs','Boxes','Day',
   'conversion_factor','Stock_qty','Qty','Selling Rate','MRP','TAX Rate',
   'Selling Rate Per Kg','Amount','Tax Amount','Final Amount',
-  'Delivered_Qty','returned_qty','Shipping Pincode','Case Size'
+  'Delivered_Qty','returned_qty','Shipping Pincode','Case Size',
+  'charge weight','Boxes*charge weight','Lowest Score 1','Lowest Score 2'
 ]);
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1515,12 +2015,25 @@ function exportToExcel() {
   XLSX.utils.book_append_sheet(wb, wsLT, 'LEAD TIME');
   XLSX.utils.book_append_sheet(wb, wsAppt, 'Appointments');
   XLSX.utils.book_append_sheet(wb, wsYest, 'Yesterday');
+  /* SO-level freight comparison (Conditions 36-38). One row per Sales
+     Order with every partner's landed cost, cheapest first, plus the four
+     Lowest columns and the saving between them. AutoFilter on so the team can sort by
+     Saving to see where switching carrier is worth the most. */
+  if (freightRows.length) {
+    const fCols = Object.keys(freightRows[0]);
+    const wsF = XLSX.utils.json_to_sheet(freightRows, { header: fCols });
+    wsF['!cols'] = fCols.map(h => ({ wch: Math.min(Math.max(h.length + 2, 11), 30) }));
+    wsF['!autofilter'] = { ref: XLSX.utils.encode_range({ s:{r:0,c:0}, e:{r:freightRows.length, c:fCols.length-1} }) };
+    XLSX.utils.book_append_sheet(wb, wsF, 'Freight Comparison');
+  }
+
   const wsPivotSrc = buildPivotSourceSheet(outputRows);
   XLSX.utils.book_append_sheet(wb, wsPivotSrc, 'Pivot Source');
   const pivotSheets = buildAllPivotSheets(outputRows);
   Object.keys(pivotSheets).forEach(name => XLSX.utils.book_append_sheet(wb, pivotSheets[name], name));
   XLSX.writeFile(wb, 'Dispatch_Plan_Today_'+new Date().toISOString().slice(0,10)+'.xlsx');
-  log('✓ Excel exported with formulas + reference sheets (LEAD TIME, Appointments, Yesterday, Pivot Source, Pivot 1-5)','ok');
+  log('✓ Excel exported with formulas + reference sheets (LEAD TIME, Appointments, Yesterday'
+      + (freightRows.length ? ', Freight Comparison' : '') + ', Pivot Source, Pivot 1-5)','ok');
 }
 
 
