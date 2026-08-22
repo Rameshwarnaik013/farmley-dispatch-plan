@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-08-21.21</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-08-22.22</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -330,7 +330,17 @@ function loadMastersFromStorage() {
     if (!raw) return false;
     const parsed = JSON.parse(raw);
     if (!parsed || !parsed.pincode) return false;
-    masters = unpackMasters(parsed);
+    const candidate = unpackMasters(parsed);
+    // A stored copy whose pincode or rate table is EMPTY is worse than no
+    // stored copy at all: it is truthy, so it shadows the bundled master
+    // permanently, and every Lowest 1 / Lowest 2 comes out blank with no
+    // stated reason. Reject it and let the bundled copy load instead.
+    if (!(candidate.pincode||[]).length || !(candidate.cost||[]).length) {
+      console.warn('Stored master is missing pincode or rate rows — ignoring it and using the bundled copy.');
+      localStorage.removeItem(MASTER_LS_KEY);
+      return false;
+    }
+    masters = candidate;
     return true;
   } catch (e) { return false; }
 }
@@ -368,6 +378,15 @@ async function loadMasters(input) {
     });
     if (missing.length === MASTER_TABLES.length) {
       alert('That workbook has none of the expected master tabs.\nExpected: ' + MASTER_TABLES.map(t=>t.sheet).join(', '));
+      return;
+    }
+    // Refuse a workbook that cannot rank carriers — storing it would shadow
+    // the bundled master and blank every Lowest column with no visible cause.
+    if (!next.pincode.length || !next.cost.length) {
+      const which = [!next.pincode.length && '"Logistics Master _sheet"',
+                     !next.cost.length && '"Logistic cost _master"'].filter(Boolean).join(' and ');
+      alert('Not loading that workbook: ' + which + ' came back empty, so no carrier could be '
+          + 'ranked and every Lowest 1 / Lowest 2 would be blank.\n\nThe master already in use is unchanged.');
       return;
     }
     masters = next;
@@ -1503,6 +1522,18 @@ function runFreight(rows) {
   /* customer -> appointment applicable */
   const APPT = {};
   (masters.customer||[]).forEach(r => { APPT[nor(r['Customer'])] = nor(r['Appointment Applicable']) === 'yes'; });
+
+  /* An empty pincode or rate table yields no offers for ANY order, which
+     used to surface as a Freight Comparison sheet full of blank partner
+     columns and no stated reason. Name the cause instead. */
+  const pinCount = Object.keys(PIN).length, rateCount = Object.keys(RATE).length;
+  if (!pinCount || !rateCount) {
+    const empty = [!pinCount && 'Logistics Master _sheet', !rateCount && 'Logistic cost _master'].filter(Boolean);
+    log(`✖ ${empty.join(' and ')} ${empty.length>1?'are':'is'} empty — every Lowest 1 / Lowest 2 column will be `
+      + `blank. Open the Masters tab and use "Reset to bundled", or re-load the master workbook.`,'err');
+  } else {
+    log(`Freight masters: ${pinCount.toLocaleString()} pincodes serviceable · ${rateCount} partner/origin/zone rates`,'info');
+  }
 
   function quote(partner, zone, type, origin, cw, inv, apptApplicable) {
     const k = PARTNER_CONST[nor(partner)];
