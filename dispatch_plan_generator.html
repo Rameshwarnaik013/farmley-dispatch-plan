@@ -544,7 +544,12 @@ async function initMasters() {
   mastersError = '';
   if (loadMastersFromStorage()) { mastersSource = 'browser'; return; }
   try {
-    const res = await fetch(MASTER_BUNDLED, { cache: 'force-cache' });
+    // NOT force-cache: that ignores revalidation and will happily keep
+    // serving a stale body forever — including the index.html a catch-all
+    // rewrite returned before this file existed. The Cache-Control header
+    // (no-cache, must-revalidate) already makes this a conditional request,
+    // so an unchanged master costs a 304 and no re-download.
+    const res = await fetch(MASTER_BUNDLED);
     if (!res.ok) throw new Error('HTTP ' + res.status + ' fetching ' + MASTER_BUNDLED);
     // A catch-all SPA rewrite will happily answer 200 with index.html when
     // the file is missing. Parsing that as JSON throws a confusing error and
