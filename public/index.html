@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-08-24.27</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-08-24.28</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -268,7 +268,7 @@ const CONDITIONS = [
   { sno:33, col:'Source Check',            rule:'REVISED — "TRUE" only when all three agree: Expected Source = Origin = Order Corrected Remark (the branch-aware corrected source). Otherwise "FALSE". The comparison is canonical — parentheses, case and extra spaces are ignored — so the Origin spelling "CFA (GGN)" counts as equal to "CFA GGN". FALSE therefore flags a row where the actual Origin, the expected source, and the corrected source do not all line up.' },
   { sno:34, col:'charge weight',           rule:'VLOOKUP on Item_Code into the "sku_charge weight" master tab. The column fetched depends on Origin: Origin = Indore → column "Indore"; Origin = Purnea → column "Purnia"; every other Origin (CFA GGN, CFA BLR, UD Foods, Kundli, Rebela) falls back to column "Final Charge weight", which is what the manual Excel used for all rows. Where that tab has more than one row for the same Item_Code, the row whose Locations matches the Origin wins; otherwise the first row wins (plain VLOOKUP behaviour). Blank when the Item_Code is absent from that tab.' },
   { sno:35, col:'Boxes*charge weight',     rule:'= Boxes × charge weight, per dispatch-plan row. Blank when charge weight is blank — it is NOT treated as zero, so a missing SKU cannot silently understate an SO total.' },
-  { sno:36, col:'Group Key / SO-level aggregation', rule:'REVISED 2026-08-24 — a single Sales Order can genuinely dispatch from more than one origin (e.g. some line items ex-Indore, some ex-CFA (GGN)). Rows are grouped by Sales_Order_No, EXCEPT Indore and Purnea rows each get their own group per SO (Group Key = "SO_No|Indore" or "SO_No|Purnea") — those are the two origins with a real, source-verified rate card. Every other origin (CFA GGN, CFA BLR, UD Foods, Rebela, Kundli) keeps the OLD behavior deliberately: all such rows for that SO are blended into ONE group (Group Key = bare SO_No), regardless of how many different non-Indore/Purnea origins are mixed together — those rates were only ever an Origin Alias extrapolation, not a verified card, so no further splitting happens for them. Charge weight per group = SUM(Boxes*charge weight) of only that group\'s rows; Invoice value = SUM(Final Amount) of only that group\'s rows — never double-counted, a row belongs to exactly one group. Customer and Shipping Pincode are taken from the group\'s first row. Every row on the main sheet shows its OWN group\'s Lowest 1/2, not a value blended across the whole SO.' },
+  { sno:36, col:'Group Key / SO-level aggregation', rule:'REVISED 2026-08-24 — a single Sales Order can genuinely dispatch from more than one origin (e.g. some line items ex-Indore, some ex-CFA (GGN)). Rows are grouped by Sales_Order_No, EXCEPT Indore and Purnea rows each get their own group per SO (Group Key = "SO_No|Indore" or "SO_No|Purnea") — those are the two origins with a real, source-verified rate card. When a Sales Order has ONLY ONE origin overall (no split occurred, whatever that origin is), that single group still gets a full Lowest 1/2 the same as before — nothing changed for single-origin SOs. But when an SO DOES span multiple origins, the leftover portion — rows whose origin is neither Indore nor Purnea (CFA GGN, CFA BLR, UD Foods, Rebela, Kundli, ...), still blended into one bare-SO_No group — gets NO recommendation at all: Lowest 1, Lowest Score 1, Lowest 2, Lowest Score 2 (and the whole per-partner breakdown) are left blank/"Null" for that group, because those rates were only ever an Origin Alias extrapolation, not a verified card, and once an SO is known to be mixed there is no reliable single figure to quote for the unverified portion. Charge weight per group = SUM(Boxes*charge weight) of only that group\'s rows; Invoice value = SUM(Final Amount) of only that group\'s rows — never double-counted, a row belongs to exactly one group. Customer and Shipping Pincode are taken from the group\'s first row. Every row on the main sheet shows its OWN group\'s Lowest 1/2, not a value blended across the whole SO.' },
   { sno:37, col:'Logistic Partner 1-5',    rule:'VLOOKUP on Shipping Pincode into "Logistics Master _sheet". One row per pincode x partner, EACH WITH ITS OWN Zone and TYPE (Normal/ODA) — verified necessary: across the 1,535 pincodes served by all four current carriers, zero share a zone string (Delhivery uses North/West, Safexpress NORTH 1/NORTH 2, DP World hub codes, Xpressbees North/West) and TYPE disagrees on 31% of pincodes. A single Zone/TYPE per pincode cannot work. Partners absent from the pincode row are not quoted. Rows with STATUS = 0 are treated as not serviceable and excluded.' },
   { sno:38, col:'Lowest 1 / Lowest 2',                  rule:'For each partner named on the pincode row, the rate is looked up in "Logistic cost _master" by Logistic Partner + Origin + Shipping Zone. Origins are compared canonically, so the dispatch plan spelling "CFA (GGN)" matches the cost master spelling "CFA GGN" and "Purnea" matches "Purnia". Cost = MAX(Min Charge, Min Weight × Rate, ChargeWeight × Rate) + Appointment + FOV + Fuel + Docket + ODA, with per-partner constants (Delhivery 30kg/₹0/0% fuel/₹75 docket/₹700 ODA; Safexpress 20kg/₹250/10%/₹100/₹750 and FOV floored at ₹100; Xpressbees 30kg/₹350/10%/₹50, appointment = MAX(30, charge weight) and a weight-banded ODA of ₹1,050–₹8,000; DP World 10kg/₹350/10%/₹50/₹700). Appointment applies only when the customer is marked Appointment Applicable in the "customer" tab. A partner is skipped when "Disabled Customers_Master" lists it against that customer. Lowest 1 = cheapest partner and Lowest Score 1 its landed cost; Lowest 2 / Lowest Score 2 the runner-up. All four are repeated on every item row of the SO, and the full per-partner breakdown lands on the "Freight Comparison" sheet.' },
 ];
@@ -1583,12 +1583,22 @@ function runFreight(rows) {
     const f = parseFloat(r['Final Amount']);        if (!isNaN(f)) g.inv += f;
   });
 
-  let quoted = 0, noPartner = 0, noWeight = 0;
+  // A bare-SO group (no "|Indore"/"|Purnea" suffix) that coexists with at least one
+  // split group for the same SO is the "leftover" portion of a multi-origin order —
+  // those other origins (CFA GGN, CFA BLR, UD Foods, Rebela, Kundli, ...) never had a
+  // verified rate card, so no Lowest 1/2 recommendation is made for them at all.
+  const soGroupCount = {};
+  Object.values(groups).forEach(g => { soGroupCount[g.so] = (soGroupCount[g.so]||0) + 1; });
+
+  let quoted = 0, noPartner = 0, noWeight = 0, noOriginMatch = 0;
   Object.values(groups).forEach(g => {
     const pc = String(parseInt(g.pincode,10) || '');
     const apptApplicable = APPT[nor(g.customer)] === true;
+    const isLeftoverOfSplitSO = !g.key.includes('|') && soGroupCount[g.so] > 1;
     let offers = [];
-    if (!g.cwSeen || g.cw <= 0) noWeight++;
+    if (isLeftoverOfSplitSO) {
+      noOriginMatch++;
+    } else if (!g.cwSeen || g.cw <= 0) noWeight++;
     else {
       offers = (PIN[pc] || [])
         .filter(s => !DENY.has(nor(g.customer)+'|'+nor(s.partner)))
@@ -2245,6 +2255,14 @@ function exportToExcel() {
     const customerRef = `$${FC('Customer')}${r}`, pincodeRef = `$${FC('Pincode')}${r}`,
           originRef = `$${FC('Origin')}${r}`, cwRef = `$${FC('Charge weight')}${r}`,
           invRef = `$${FC('Invoice value')}${r}`, apptRef = `$${FC('Appointment Applicable')}${r}`;
+    // Leftover portion of a multi-origin SO (bare Group Key, i.e. no "|Indore"/"|Purnea"
+    // suffix, AND more than one Freight Comparison row exists for this SO No) — those
+    // other origins never had a verified rate card, so no quote/recommendation is made
+    // for them at all. Gating just the Zone cell is enough: every downstream cell in
+    // the chain (Type/Rate/Basic/Appt/FOV/Fuel/ODA/Total) already collapses to "Null"
+    // once Zone is "Null", which then makes Lowest Score 1/2 resolve to "Null" too.
+    const groupKeyRef = `$${FC('Group Key')}${r}`, soNoRef = `$${FC('SO No')}${r}`;
+    const leftoverCond = `AND(ISERROR(FIND("|",${groupKeyRef})),COUNTIF($${FC('SO No')}:$${FC('SO No')},${soNoRef})>1)`;
     wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Group Key']})] = { t:'s', v: fr['Group Key'] };
     wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['SO No']})] = { t:'s', v: fr['SO No'] };
     wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Customer']})] = { t:'s', v: fr.Customer||'' };
@@ -2290,7 +2308,7 @@ function exportToExcel() {
       const key = `${pincodeRef}&"|"&"${nor(pname)}"`;   // Pincode & "|" & partner — matches Logistics Master's Key
 
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Zone']})] =
-        { t:'s', f:`IFERROR(IF(VLOOKUP(${key},'Logistics Master'!$A:$H,8,FALSE)=0,"Null",VLOOKUP(${key},'Logistics Master'!$A:$H,5,FALSE)),"Null")` };
+        { t:'s', f:`IF(${leftoverCond},"Null",IFERROR(IF(VLOOKUP(${key},'Logistics Master'!$A:$H,8,FALSE)=0,"Null",VLOOKUP(${key},'Logistics Master'!$A:$H,5,FALSE)),"Null"))` };
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Type']})] =
         { t:'s', f:`IF(${zoneCell}="Null","Null",IFERROR(VLOOKUP(${key},'Logistics Master'!$A:$H,6,FALSE),"Normal"))` };
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Denied']})] =
