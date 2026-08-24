@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-08-22.22</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-08-24.24</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -1915,6 +1915,67 @@ function exportToExcel() {
   };
   const C = name => colLetter(colIdx[name]);
 
+  /* ── Freight Comparison column layout (Conditions 36-38) ─────────────
+     Defined here, before it is used, so both the main sheet's Lowest 1/2
+     VLOOKUPs and the Freight Comparison sheet itself agree on where every
+     column lives. Same PARTNER_CONST / XB_ODA_SLAB / canonOrigin the live
+     preview uses (module scope, untouched) — only rewritten as formula
+     text instead of JS, so the export shows its own working. */
+  const FC_PARTNERS = ['Delhivery','Safexpress','Xpressbees','DP World'];
+  const FCOLS = ['SO No','Customer','Pincode','Origin','Charge weight','Invoice value','Appointment Applicable'];
+  FC_PARTNERS.forEach(p => FCOLS.push(p+' Zone', p+' Type', p+' Denied', p+' Rate', p+' Basic', p+' Appt', p+' FOV', p+' Fuel', p+' ODA', p+' Total'));
+  FCOLS.push('Lowest 1','Lowest Score 1','Lowest 2','Lowest Score 2','Saving');
+  const fIdx = {}; FCOLS.forEach((h,i) => fIdx[h] = i);
+  const FC = name => colLetter(fIdx[name]);
+  // Mirrors canonOrigin(): strip parens, collapse spaces, "purnea"->"purnia".
+  const canonOriginExpr = cellRef =>
+    `IF(LOWER(SUBSTITUTE(SUBSTITUTE(TRIM(${cellRef}),"(",""),")",""))="purnea","purnia",LOWER(SUBSTITUTE(SUBSTITUTE(TRIM(${cellRef}),"(",""),")","")))`;
+
+  /* ── Build master reference sheets (Conditions 34, 37-38) ────────────
+     SKU Master / Logistics Master / Logistic Cost / Disabled Customers /
+     Customer Appt — the same tables the Masters tab edits, exported so
+     'charge weight' and every freight column are traceable VLOOKUPs
+     instead of opaque numbers. Logistics Master is filtered to pincodes
+     actually in this plan (51,823 -> a few thousand rows) purely for
+     recalculation speed; the VLOOKUP results are identical either way. */
+  const skuRefRows = (masters && masters.sku || []).map(r => {
+    const itemId = String(r['Item ID']||''), loc = String(r['Locations']||'');
+    return { MatchKey: itemId+'|'+loc, 'Item ID': itemId, Locations: loc,
+             'Final Charge weight': r['Final Charge weight'] ?? '', Indore: r['Indore'] ?? '', Purnia: r['Purnia'] ?? '' };
+  });
+  const wsSku = XLSX.utils.json_to_sheet(skuRefRows, {header:['MatchKey','Item ID','Locations','Final Charge weight','Indore','Purnia']});
+
+  const relevantPins = new Set(outputRows.map(r => String(parseInt(r['Shipping Pincode'],10)||'')).filter(Boolean));
+  const lmRefRows = (masters && masters.pincode || [])
+    .filter(r => relevantPins.has(String(parseInt(r['Shipping Pincode'],10)||'')))
+    .map(r => {
+      const pin = String(parseInt(r['Shipping Pincode'],10)||''), partner = String(r['Logistic Partner']||'');
+      return { Key: pin+'|'+nor(partner), 'Shipping Pincode': pin, 'Facility City': r['Facility City']||'',
+               'Facility State': r['Facility State']||'', Zone: r['Zone']||'', TYPE: r['TYPE']||'',
+               'Logistic Partner': partner, STATUS: (r['STATUS']===''||r['STATUS']==null) ? 1 : r['STATUS'] };
+    });
+  const wsLM = XLSX.utils.json_to_sheet(lmRefRows, {header:['Key','Shipping Pincode','Facility City','Facility State','Zone','TYPE','Logistic Partner','STATUS']});
+
+  const lcRefRows = (masters && masters.cost || []).map(r => {
+    const partner = String(r['Logistic Partner']||''), zone = String(r['Shipping Zone']||'');
+    return { Key: canonOrigin(r['Origin'])+'|'+nor(partner)+'|'+nor(zone), Origin: r['Origin']||'',
+             'Shipping Zone': zone, Rate: r['Rate']===''? '' : parseFloat(r['Rate']), 'Logistic Partner': partner };
+  });
+  const wsLC = XLSX.utils.json_to_sheet(lcRefRows, {header:['Key','Origin','Shipping Zone','Rate','Logistic Partner']});
+
+  const dcRefRows = (masters && masters.disabled || [])
+    .filter(r => nor(r['Service Type']) === 'no')
+    .map(r => {
+      const cust = String(r['Customer Name']||''), partner = String(r['Logistic Partner']||'');
+      return { Key: nor(cust)+'|'+nor(partner), 'Customer Name': cust, 'Logistic Partner': partner, Reason: r['Reason']||'' };
+    });
+  const wsDC = XLSX.utils.json_to_sheet(dcRefRows, {header:['Key','Customer Name','Logistic Partner','Reason']});
+
+  const caRefRows = (masters && masters.customer || []).map(r => ({
+    Customer: r['Customer']||'', 'Appointment Applicable': r['Appointment Applicable']||''
+  }));
+  const wsCA = XLSX.utils.json_to_sheet(caRefRows, {header:['Customer','Appointment Applicable']});
+
   /* ── Build reference sheets ────────────────────────────────────────── */
   // LEAD TIME sheet: Origin | Shipping State | Day | Lookup_Key (helper)
   const ltExport = refData.leadtime.map(r => {
@@ -1993,7 +2054,8 @@ function exportToExcel() {
 
   /* ── Build main sheet with formulas ────────────────────────────────── */
   // First row: write raw values for non-formula columns, placeholders for formula columns
-  const FORMULA_COLS = new Set(['CC','Day','Appt','Remark','If Dispatched, then EDD','EDD','Merge','Dispatch_Status','Final Dispatch Status']);
+  const FORMULA_COLS = new Set(['CC','Day','Appt','Remark','If Dispatched, then EDD','EDD','Merge','Dispatch_Status','Final Dispatch Status',
+    'charge weight','Boxes*charge weight','Lowest 1','Lowest Score 1','Lowest 2','Lowest Score 2']);
 
   const exportData = outputRows.map(row => {
     const obj = {};
@@ -2065,6 +2127,35 @@ function exportToExcel() {
     // Merge = Sales_Order_No & Branch (Condition 17)
     const mgAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Merge']});
     ws[mgAddr] = { t:'s', f:`${C('Sales_Order_No')}${r}&${C('Branch')}${r}` };
+
+    // charge weight (Condition 34): VLOOKUP into SKU Master by Item_Code, preferring the
+    // row whose Locations matches the Origin (Indore/Purnia/UD Foods/Tamil Nadu), else the
+    // first row for that Item_Code; the column read depends on Origin (Indore -> Indore,
+    // Purnea -> Purnia, everything else -> Final Charge weight) — mirrors chargeWeightFor().
+    const wantLoc = `IF(${C('Origin')}${r}="Indore","Indore",IF(${C('Origin')}${r}="Purnea","Purnia",IF(${C('Origin')}${r}="UD Foods","UD Foods",IF(${C('Origin')}${r}="Rebela","Tamil Nadu",""))))`;
+    const cwColA = `IF(${C('Origin')}${r}="Indore",5,IF(${C('Origin')}${r}="Purnea",6,4))`;   // within SKU Master!A:F
+    const cwColB = `IF(${C('Origin')}${r}="Indore",4,IF(${C('Origin')}${r}="Purnea",5,3))`;   // within SKU Master!B:F (fallback, no Locations match)
+    const cwAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['charge weight']});
+    ws[cwAddr] = { t:'n', f:`IFERROR(VLOOKUP(${C('Item_Code')}${r}&"|"&${wantLoc},'SKU Master'!$A:$F,${cwColA},FALSE),IFERROR(VLOOKUP(${C('Item_Code')}${r},'SKU Master'!$B:$F,${cwColB},FALSE),""))` };
+
+    // Boxes*charge weight (Condition 35) — blank, not 0, when charge weight is blank OR
+    // not a number at all (the SKU master occasionally has a stray typo — e.g. "fv" where
+    // a weight should be — in a raw source column outside this app's control; VLOOKUP
+    // faithfully returns whatever is there). NOT(ISNUMBER(...)) catches both cases instead
+    // of only an exact blank, so one bad master row degrades to blank for that row only —
+    // matching what the live app already does (chargeWt*boxes -> NaN, silently filtered at
+    // aggregation) — rather than throwing #VALUE! and poisoning the whole SO's SUMIF/COUNTIFS
+    // on the Freight Comparison sheet downstream.
+    const bcwAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Boxes*charge weight']});
+    ws[bcwAddr] = { t:'n', f:`IF(OR(NOT(ISNUMBER(${C('charge weight')}${r})),NOT(ISNUMBER(${C('Boxes')}${r}))),"",${C('charge weight')}${r}*${C('Boxes')}${r})` };
+
+    // Lowest 1/2 + their scores (Conditions 36-38): looked up from the Freight Comparison
+    // sheet, which carries the full per-partner formula chain for this SO.
+    ['Lowest 1','Lowest Score 1','Lowest 2','Lowest Score 2'].forEach(col => {
+      const addr = XLSX.utils.encode_cell({r:r-1, c:colIdx[col]});
+      ws[addr] = { t: col.indexOf('Score') >= 0 ? 'n' : 's',
+        f:`IFERROR(VLOOKUP(${C('Sales_Order_No')}${r},'Freight Comparison'!$A:$${FC('Saving')},${fIdx[col]+1},FALSE),"")` };
+    });
   }
 
   /* ── Apply number formats to date and numeric columns ──────────────── */
@@ -2091,25 +2182,138 @@ function exportToExcel() {
   XLSX.utils.book_append_sheet(wb, wsLT, 'LEAD TIME');
   XLSX.utils.book_append_sheet(wb, wsAppt, 'Appointments');
   XLSX.utils.book_append_sheet(wb, wsYest, 'Yesterday');
-  /* SO-level freight comparison (Conditions 36-38). One row per Sales
-     Order with every partner's landed cost, cheapest first, plus the four
-     Lowest columns and the saving between them. AutoFilter on so the team can sort by
-     Saving to see where switching carrier is worth the most. */
-  if (freightRows.length) {
-    const fCols = Object.keys(freightRows[0]);
-    const wsF = XLSX.utils.json_to_sheet(freightRows, { header: fCols });
-    wsF['!cols'] = fCols.map(h => ({ wch: Math.min(Math.max(h.length + 2, 11), 30) }));
-    wsF['!autofilter'] = { ref: XLSX.utils.encode_range({ s:{r:0,c:0}, e:{r:freightRows.length, c:fCols.length-1} }) };
-    XLSX.utils.book_append_sheet(wb, wsF, 'Freight Comparison');
-  }
+  XLSX.utils.book_append_sheet(wb, wsSku, 'SKU Master');
+  XLSX.utils.book_append_sheet(wb, wsLM, 'Logistics Master');
+  XLSX.utils.book_append_sheet(wb, wsLC, 'Logistic Cost');
+  XLSX.utils.book_append_sheet(wb, wsDC, 'Disabled Customers');
+  XLSX.utils.book_append_sheet(wb, wsCA, 'Customer Appt');
+
+  /* SO-level freight comparison (Conditions 36-38), fully formula-driven so every
+     number is traceable: Charge weight / Invoice value are SUMIFs over the main
+     sheet, Appointment Applicable / partner Zone / Type / Rate are VLOOKUPs into
+     the reference sheets above, and Basic/Appt/FOV/Fuel/ODA/Total are written out
+     as literal formula text using the SAME PARTNER_CONST and XB_ODA_SLAB constants
+     runFreight() uses for the live preview (module scope, untouched) — the same
+     approach the original RPC Indore workbook itself used for its Master Sheet.
+     Always appended, even with 0 SOs, so the main sheet's VLOOKUPs above never
+     reference a sheet that does not exist. */
+  const wsF = {};
+  XLSX.utils.sheet_add_aoa(wsF, [FCOLS], {origin:'A1'});
+  freightRows.forEach((fr, i) => {
+    const r = i + 2;
+    wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['SO No']})] = { t:'s', v: fr['SO No'] };
+    wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Customer']})] = { t:'s', v: fr.Customer||'' };
+    wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Pincode']})] = { t:'n', v: parseFloat(fr.Pincode)||0 };
+    wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Origin']})] = { t:'s', v: fr.Origin||'' };
+
+    // Charge weight / Invoice value: SUMIF over the main sheet, grouped by this SO.
+    // Charge weight is blank, not 0, when NO row for this SO has a numeric
+    // Boxes*charge weight (every Item_Code missing from the SKU master) — SUMIF
+    // alone can't tell "summed to zero" from "nothing to sum", so COUNTIFS with
+    // a numeric ">=0" criterion (which only ever matches numbers, never the
+    // text "") gates it, mirroring runFreight()'s cwSeen flag exactly.
+    // Deliberately NOT rounded: runFreight() feeds the RAW unrounded g.cw/g.inv
+    // into quote() for every partner's Basic/FOV math and rounds only the
+    // separate DISPLAY value afterward — rounding this cell would feed a
+    // rounded number into the Basic/FOV formulas below (which reference it
+    // directly) where JS uses the raw one, drifting every downstream total
+    // by a fraction of a rupee. A confirmed, tested regression — do not add
+    // ROUND() here without also splitting display from computation.
+    wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Charge weight']})] =
+      { t:'n', f:`IF(COUNTIFS('Dispatch plan_Today'!$${C('Sales_Order_No')}:$${C('Sales_Order_No')},$A${r},'Dispatch plan_Today'!$${C('Boxes*charge weight')}:$${C('Boxes*charge weight')},">=0")=0,"",SUMIF('Dispatch plan_Today'!$${C('Sales_Order_No')}:$${C('Sales_Order_No')},$A${r},'Dispatch plan_Today'!$${C('Boxes*charge weight')}:$${C('Boxes*charge weight')}))` };
+    wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Invoice value']})] =
+      { t:'n', f:`SUMIF('Dispatch plan_Today'!$${C('Sales_Order_No')}:$${C('Sales_Order_No')},$A${r},'Dispatch plan_Today'!$${C('Final Amount')}:$${C('Final Amount')})` };
+
+    // Appointment Applicable: VLOOKUP into the Customer Appt master.
+    wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Appointment Applicable']})] =
+      { t:'s', f:`IFERROR(IF(LOWER(VLOOKUP($B${r},'Customer Appt'!$A:$B,2,FALSE))="yes","Yes","No"),"Not in master")` };
+
+    const totalCells = [];
+    FC_PARTNERS.forEach(pname => {
+      const k = PARTNER_CONST[nor(pname)];
+      const zoneCell = `$${FC(pname+' Zone')}${r}`, typeCell = `$${FC(pname+' Type')}${r}`,
+            deniedCell = `$${FC(pname+' Denied')}${r}`, rateCell = `$${FC(pname+' Rate')}${r}`,
+            basicCell = `$${FC(pname+' Basic')}${r}`, apptCell = `$${FC(pname+' Appt')}${r}`,
+            fovCell = `$${FC(pname+' FOV')}${r}`, fuelCell = `$${FC(pname+' Fuel')}${r}`,
+            odaCell = `$${FC(pname+' ODA')}${r}`, totalCell = `$${FC(pname+' Total')}${r}`;
+      totalCells.push(totalCell);
+      const key = `$C${r}&"|"&"${nor(pname)}"`;   // Pincode & "|" & partner — matches Logistics Master's Key
+
+      wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Zone']})] =
+        { t:'s', f:`IFERROR(IF(VLOOKUP(${key},'Logistics Master'!$A:$H,8,FALSE)=0,"Null",VLOOKUP(${key},'Logistics Master'!$A:$H,5,FALSE)),"Null")` };
+      wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Type']})] =
+        { t:'s', f:`IF(${zoneCell}="Null","Null",IFERROR(VLOOKUP(${key},'Logistics Master'!$A:$H,6,FALSE),"Normal"))` };
+      wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Denied']})] =
+        { t:'b', f:`ISNUMBER(MATCH(LOWER($B${r})&"|"&"${nor(pname)}",'Disabled Customers'!$A:$A,0))` };
+      wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Rate']})] =
+        { t:'n', f:`IF(OR(${zoneCell}="Null",${deniedCell}=TRUE),"Null",IFERROR(VLOOKUP(${canonOriginExpr('$D'+r)}&"|"&"${nor(pname)}"&"|"&LOWER(${zoneCell}),'Logistic Cost'!$A:$D,4,FALSE),"Null"))` };
+      wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Basic']})] =
+        { t:'n', f:`IF(OR(${rateCell}="Null",NOT(ISNUMBER($E${r})),$E${r}<=0),"Null",MAX(${k.minChg},${k.minWt}*${rateCell},$E${r}*${rateCell}))` };
+      wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Appt']})] =
+        { t:'n', f:`IF(${basicCell}="Null","Null",IF($G${r}<>"Yes",0,${k.apptPerKg ? `MAX(${k.appt},$E${r})` : k.appt}))` };
+      wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' FOV']})] =
+        { t:'n', f:`IF(${basicCell}="Null","Null",MAX(${k.fovMin},$F${r}*${k.fovPct}%))` };
+      wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Fuel']})] =
+        { t:'n', f:`IF(${basicCell}="Null","Null",${basicCell}*${k.fuelPct}%)` };
+      wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' ODA']})] = { t:'n', f: k.oda === 'slab'
+        ? `IF(${basicCell}="Null","Null",IF(LOWER(${typeCell})<>"oda",0,IF($E${r}<51,1050,IF($E${r}<101,1150,IF($E${r}<251,1400,IF($E${r}<501,1550,IF($E${r}<1001,2000,IF($E${r}<2001,2200,8000))))))))`
+        : `IF(${basicCell}="Null","Null",IF(LOWER(${typeCell})<>"oda",0,${k.oda}))` };
+      wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Total']})] =
+        { t:'n', f:`IF(OR(${basicCell}="Null",${apptCell}="Null"),"Null",${basicCell}+${apptCell}+${fovCell}+${fuelCell}+${odaCell}+${k.docket})` };
+    });
+
+    // Lowest Score 1: smallest of the 4 partner Totals, ignoring "Null" text.
+    const num = c => `IF(ISNUMBER(${c}),${c},9E99)`;
+    const parts = totalCells.map(num);
+    wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Lowest Score 1']})] =
+      { t:'n', f:`IF(MIN(${parts.join(',')})>=9E99,"Null",MIN(${parts.join(',')}))` };
+    const ls1 = `$${FC('Lowest Score 1')}${r}`;
+
+    // Nested IF, not IFS: IFS() is Excel 2019/365-only and shows #NAME? on the
+    // still-common Office 2016 perpetual install (also reports version "16.0",
+    // indistinguishable from 365 without actually testing a 2019+ function) —
+    // confirmed by opening this exact export in that Excel and seeing #NAME?
+    // errors on every Lowest 1/2 cell. Nested IF works in every Excel version.
+    const nestedIf = (pairs, elseVal) =>
+      pairs.reduceRight((acc, [cond,val]) => `IF(${cond},${val},${acc})`, elseVal);
+
+    const l1chain = nestedIf(FC_PARTNERS.map((p,i) => [`${totalCells[i]}=${ls1}`, `"${p}"`]), '"Null"');
+    wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Lowest 1']})] = { t:'s', f:`IF(${ls1}="Null","Null",${l1chain})` };
+    const l1 = `$${FC('Lowest 1')}${r}`;
+
+    // Lowest Score 2: smallest of the 4 Totals EXCLUDING the specific partner already
+    // named in Lowest 1 — excluding by IDENTITY, not by value, is the point: when two
+    // partners tie at the minimum, excluding "any cell equal to Lowest Score 1" would
+    // wrongly drop BOTH of them and skip past the tie to the next distinct value.
+    // Excluding only the one partner Lowest 1 already claimed lets the OTHER tied
+    // partner surface correctly, matching runFreight()'s offers[0]/offers[1] array
+    // semantics (a tie at the minimum makes Lowest Score 2 equal Lowest Score 1).
+    const m2parts = FC_PARTNERS.map((p,i) => `IF("${p}"=${l1},9E99,${num(totalCells[i])})`);
+    wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Lowest Score 2']})] =
+      { t:'n', f:`IF(${ls1}="Null","Null",IF(MIN(${m2parts.join(',')})>=9E99,"Null",MIN(${m2parts.join(',')})))` };
+    const ls2 = `$${FC('Lowest Score 2')}${r}`;
+
+    // Excludes whichever partner already won Lowest 1, so a tie at the minimum
+    // correctly names the OTHER tied partner for Lowest 2 instead of repeating it.
+    const l2chain = nestedIf(FC_PARTNERS.map((p,i) => [`AND(${totalCells[i]}=${ls2},"${p}"<>${l1})`, `"${p}"`]), '"Null"');
+    wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Lowest 2']})] = { t:'s', f:`IF(${ls2}="Null","Null",${l2chain})` };
+
+    wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Saving']})] =
+      { t:'n', f:`IF(OR(${ls1}="Null",${ls2}="Null"),"",${ls2}-${ls1})` };
+  });
+  wsF['!ref'] = XLSX.utils.encode_range({ s:{r:0,c:0}, e:{r:Math.max(freightRows.length,1),c:FCOLS.length-1} });
+  wsF['!cols'] = FCOLS.map(h => ({ wch: Math.min(Math.max(h.length + 2, 9), 24) }));
+  wsF['!autofilter'] = { ref: XLSX.utils.encode_range({ s:{r:0,c:0}, e:{r:Math.max(freightRows.length,1),c:FCOLS.length-1} }) };
+  XLSX.utils.book_append_sheet(wb, wsF, 'Freight Comparison');
 
   const wsPivotSrc = buildPivotSourceSheet(outputRows);
   XLSX.utils.book_append_sheet(wb, wsPivotSrc, 'Pivot Source');
   const pivotSheets = buildAllPivotSheets(outputRows);
   Object.keys(pivotSheets).forEach(name => XLSX.utils.book_append_sheet(wb, pivotSheets[name], name));
   XLSX.writeFile(wb, 'Dispatch_Plan_Today_'+new Date().toISOString().slice(0,10)+'.xlsx');
-  log('✓ Excel exported with formulas + reference sheets (LEAD TIME, Appointments, Yesterday'
-      + (freightRows.length ? ', Freight Comparison' : '') + ', Pivot Source, Pivot 1-5)','ok');
+  log('✓ Excel exported — every derived column is a live formula (LEAD TIME, Appointments, Yesterday, '
+      + 'SKU Master, Logistics Master, Logistic Cost, Disabled Customers, Customer Appt, '
+      + 'Freight Comparison, Pivot Source, Pivot 1-5)','ok');
 }
 
 
