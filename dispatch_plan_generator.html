@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-08-24.24</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-08-24.25</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -1550,12 +1550,34 @@ function runFreight(rows) {
              basic, appt, fov, fuel, docket:k.docket, oda, rate, zone, type };
   }
 
-  /* CONDITION 36: group by Sales_Order_No */
+  /* CONDITION 36: group by Sales_Order_No, EXCEPT Indore and Purnea rows are
+     split into their own group per SO (user-confirmed 2026-08-24: a single SO
+     can genuinely dispatch from more than one origin — e.g. some line items
+     ex-Indore, some ex-UD Foods, some CFA (BLR) — and blending them into one
+     group priced the WHOLE order off whichever origin happened to appear
+     first in the dump, silently mispricing every other origin's lines. Indore
+     and Purnea are the two origins with a real, source-verified rate card
+     (the two separate RPC freight workbooks); every other origin (CFA GGN,
+     CFA BLR, UD Foods, Rebela, Kundli) keeps the OLD single-blended-group
+     behavior deliberately — those rates were only ever an extrapolation via
+     Origin Alias, not a verified card, so scope stays unchanged for them.
+     A row is never double-counted: an Indore/Purnea row that gets its own
+     group is NOT also folded into that SO's "other" group. */
+  const originBucket = origin => {
+    const c = canonOrigin(origin);
+    if (c === 'indore') return 'Indore';
+    if (c === 'purnia') return 'Purnea';
+    return null;
+  };
+  const groupKeyFor = (so, origin) => { const b = originBucket(origin); return b ? so+'|'+b : so; };
+
   const groups = {};
   rows.forEach(r => {
     const so = r.Sales_Order_No; if (!so) return;
-    const g = groups[so] = groups[so] || { so, rows:[], cw:0, inv:0, cwSeen:false,
-      customer:r.Customer, pincode:r['Shipping Pincode'], origin:r.Origin };
+    const bucket = originBucket(r.Origin);
+    const key = groupKeyFor(so, r.Origin);
+    const g = groups[key] = groups[key] || { so, key, rows:[], cw:0, inv:0, cwSeen:false,
+      customer:r.Customer, pincode:r['Shipping Pincode'], origin: bucket || r.Origin };
     g.rows.push(r);
     const b = parseFloat(r['Boxes*charge weight']); if (!isNaN(b)) { g.cw += b; g.cwSeen = true; }
     const f = parseFloat(r['Final Amount']);        if (!isNaN(f)) g.inv += f;
@@ -1587,7 +1609,7 @@ function runFreight(rows) {
       r['Lowest 2'] = L2; r['Lowest Score 2'] = S2;
     });
 
-    const fr = { 'SO No':g.so, Customer:g.customer, Pincode:g.pincode, Origin:g.origin,
+    const fr = { 'Group Key':g.key, 'SO No':g.so, Customer:g.customer, Pincode:g.pincode, Origin:g.origin,
                  'Charge weight': g.cwSeen ? Math.round(g.cw*1000)/1000 : '',
                  'Invoice value': r2(g.inv),
                  'Appointment Applicable': APPT[nor(g.customer)] === undefined ? 'Not in master' : (apptApplicable?'Yes':'No') };
@@ -1660,7 +1682,7 @@ const EXPORT_COLS = [
   'owner','Workflow_State','purpose','Sales_Order_Status','Delivery_Date','Multi GRN',
   'Merge','CFA Check','Is CFA','Expected Source','CFA Serviceability Check',
   'Order Corrected Remark','Source Check',
-  'charge weight','Boxes*charge weight',
+  'Group Key','charge weight','Boxes*charge weight',
   'Lowest 1','Lowest Score 1','Lowest 2','Lowest Score 2'
 ];
 
@@ -1922,7 +1944,11 @@ function exportToExcel() {
      preview uses (module scope, untouched) — only rewritten as formula
      text instead of JS, so the export shows its own working. */
   const FC_PARTNERS = ['Delhivery','Safexpress','Xpressbees','DP World'];
-  const FCOLS = ['SO No','Customer','Pincode','Origin','Charge weight','Invoice value','Appointment Applicable'];
+  // Group Key must be column A: it's the VLOOKUP target from the main sheet, and VLOOKUP
+  // requires its lookup column to be the leftmost of the search range. It's the SO number
+  // for most rows, plus a |Indore or |Purnea suffix when this row's freight was split out
+  // of a multi-origin SO — see the Group Key formula on the main sheet.
+  const FCOLS = ['Group Key','SO No','Customer','Pincode','Origin','Charge weight','Invoice value','Appointment Applicable'];
   FC_PARTNERS.forEach(p => FCOLS.push(p+' Zone', p+' Type', p+' Denied', p+' Rate', p+' Basic', p+' Appt', p+' FOV', p+' Fuel', p+' ODA', p+' Total'));
   FCOLS.push('Lowest 1','Lowest Score 1','Lowest 2','Lowest Score 2','Saving');
   const fIdx = {}; FCOLS.forEach((h,i) => fIdx[h] = i);
@@ -2055,7 +2081,7 @@ function exportToExcel() {
   /* ── Build main sheet with formulas ────────────────────────────────── */
   // First row: write raw values for non-formula columns, placeholders for formula columns
   const FORMULA_COLS = new Set(['CC','Day','Appt','Remark','If Dispatched, then EDD','EDD','Merge','Dispatch_Status','Final Dispatch Status',
-    'charge weight','Boxes*charge weight','Lowest 1','Lowest Score 1','Lowest 2','Lowest Score 2']);
+    'Group Key','charge weight','Boxes*charge weight','Lowest 1','Lowest Score 1','Lowest 2','Lowest Score 2']);
 
   const exportData = outputRows.map(row => {
     const obj = {};
@@ -2128,6 +2154,16 @@ function exportToExcel() {
     const mgAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Merge']});
     ws[mgAddr] = { t:'s', f:`${C('Sales_Order_No')}${r}&${C('Branch')}${r}` };
 
+    // Group Key (Condition 36, revised 2026-08-24): Sales_Order_No, EXCEPT Indore and
+    // Purnea rows get their own suffix so an SO that genuinely dispatches from more than
+    // one origin (e.g. some lines ex-Indore, some ex-UD Foods) is priced separately per
+    // origin instead of the whole order being blended into one freight quote. Every other
+    // origin (CFA GGN, CFA BLR, UD Foods, Rebela, Kundli) keeps the bare SO number — those
+    // rates were only ever an Origin Alias extrapolation, not a verified rate card, so
+    // scope stays unchanged for them. Mirrors groupKeyFor() in runFreight() exactly.
+    const gkAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Group Key']});
+    ws[gkAddr] = { t:'s', f:`${C('Sales_Order_No')}${r}&IF(${canonOriginExpr(C('Origin')+r)}="indore","|Indore",IF(${canonOriginExpr(C('Origin')+r)}="purnia","|Purnea",""))` };
+
     // charge weight (Condition 34): VLOOKUP into SKU Master by Item_Code, preferring the
     // row whose Locations matches the Origin (Indore/Purnia/UD Foods/Tamil Nadu), else the
     // first row for that Item_Code; the column read depends on Origin (Indore -> Indore,
@@ -2150,11 +2186,12 @@ function exportToExcel() {
     ws[bcwAddr] = { t:'n', f:`IF(OR(NOT(ISNUMBER(${C('charge weight')}${r})),NOT(ISNUMBER(${C('Boxes')}${r}))),"",${C('charge weight')}${r}*${C('Boxes')}${r})` };
 
     // Lowest 1/2 + their scores (Conditions 36-38): looked up from the Freight Comparison
-    // sheet, which carries the full per-partner formula chain for this SO.
+    // sheet by GROUP KEY, not bare Sales_Order_No — so an Indore row and a UD Foods row
+    // on the same SO correctly land on their own separate freight quotes.
     ['Lowest 1','Lowest Score 1','Lowest 2','Lowest Score 2'].forEach(col => {
       const addr = XLSX.utils.encode_cell({r:r-1, c:colIdx[col]});
       ws[addr] = { t: col.indexOf('Score') >= 0 ? 'n' : 's',
-        f:`IFERROR(VLOOKUP(${C('Sales_Order_No')}${r},'Freight Comparison'!$A:$${FC('Saving')},${fIdx[col]+1},FALSE),"")` };
+        f:`IFERROR(VLOOKUP(${C('Group Key')}${r},'Freight Comparison'!$A:$${FC('Saving')},${fIdx[col]+1},FALSE),"")` };
     });
   }
 
@@ -2201,6 +2238,13 @@ function exportToExcel() {
   XLSX.utils.sheet_add_aoa(wsF, [FCOLS], {origin:'A1'});
   freightRows.forEach((fr, i) => {
     const r = i + 2;
+    // Dynamic cell refs — Group Key occupying column A shifted everything else, so
+    // every formula below addresses these sheet-position-independent variables
+    // instead of a hardcoded letter.
+    const customerRef = `$${FC('Customer')}${r}`, pincodeRef = `$${FC('Pincode')}${r}`,
+          originRef = `$${FC('Origin')}${r}`, cwRef = `$${FC('Charge weight')}${r}`,
+          invRef = `$${FC('Invoice value')}${r}`, apptRef = `$${FC('Appointment Applicable')}${r}`;
+    wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Group Key']})] = { t:'s', v: fr['Group Key'] };
     wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['SO No']})] = { t:'s', v: fr['SO No'] };
     wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Customer']})] = { t:'s', v: fr.Customer||'' };
     wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Pincode']})] = { t:'n', v: parseFloat(fr.Pincode)||0 };
@@ -2219,14 +2263,19 @@ function exportToExcel() {
     // directly) where JS uses the raw one, drifting every downstream total
     // by a fraction of a rupee. A confirmed, tested regression — do not add
     // ROUND() here without also splitting display from computation.
+    // Criteria range is the main sheet's Group Key column, NOT Sales_Order_No — a
+    // multi-origin SO has more than one Freight Comparison row (one per origin
+    // bucket), so matching on bare SO number would sum every origin's rows into
+    // each of that SO's groups. $A{r} here is this row's OWN Group Key (column A).
     wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Charge weight']})] =
-      { t:'n', f:`IF(COUNTIFS('Dispatch plan_Today'!$${C('Sales_Order_No')}:$${C('Sales_Order_No')},$A${r},'Dispatch plan_Today'!$${C('Boxes*charge weight')}:$${C('Boxes*charge weight')},">=0")=0,"",SUMIF('Dispatch plan_Today'!$${C('Sales_Order_No')}:$${C('Sales_Order_No')},$A${r},'Dispatch plan_Today'!$${C('Boxes*charge weight')}:$${C('Boxes*charge weight')}))` };
+      { t:'n', f:`IF(COUNTIFS('Dispatch plan_Today'!$${C('Group Key')}:$${C('Group Key')},$A${r},'Dispatch plan_Today'!$${C('Boxes*charge weight')}:$${C('Boxes*charge weight')},">=0")=0,"",SUMIF('Dispatch plan_Today'!$${C('Group Key')}:$${C('Group Key')},$A${r},'Dispatch plan_Today'!$${C('Boxes*charge weight')}:$${C('Boxes*charge weight')}))` };
     wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Invoice value']})] =
-      { t:'n', f:`SUMIF('Dispatch plan_Today'!$${C('Sales_Order_No')}:$${C('Sales_Order_No')},$A${r},'Dispatch plan_Today'!$${C('Final Amount')}:$${C('Final Amount')})` };
+      { t:'n', f:`SUMIF('Dispatch plan_Today'!$${C('Group Key')}:$${C('Group Key')},$A${r},'Dispatch plan_Today'!$${C('Final Amount')}:$${C('Final Amount')})` };
 
-    // Appointment Applicable: VLOOKUP into the Customer Appt master.
+    // Appointment Applicable: VLOOKUP into the Customer Appt master, by Customer
+    // (column C now that Group Key occupies A and SO No occupies B).
     wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Appointment Applicable']})] =
-      { t:'s', f:`IFERROR(IF(LOWER(VLOOKUP($B${r},'Customer Appt'!$A:$B,2,FALSE))="yes","Yes","No"),"Not in master")` };
+      { t:'s', f:`IFERROR(IF(LOWER(VLOOKUP($${FC('Customer')}${r},'Customer Appt'!$A:$B,2,FALSE))="yes","Yes","No"),"Not in master")` };
 
     const totalCells = [];
     FC_PARTNERS.forEach(pname => {
@@ -2237,26 +2286,26 @@ function exportToExcel() {
             fovCell = `$${FC(pname+' FOV')}${r}`, fuelCell = `$${FC(pname+' Fuel')}${r}`,
             odaCell = `$${FC(pname+' ODA')}${r}`, totalCell = `$${FC(pname+' Total')}${r}`;
       totalCells.push(totalCell);
-      const key = `$C${r}&"|"&"${nor(pname)}"`;   // Pincode & "|" & partner — matches Logistics Master's Key
+      const key = `${pincodeRef}&"|"&"${nor(pname)}"`;   // Pincode & "|" & partner — matches Logistics Master's Key
 
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Zone']})] =
         { t:'s', f:`IFERROR(IF(VLOOKUP(${key},'Logistics Master'!$A:$H,8,FALSE)=0,"Null",VLOOKUP(${key},'Logistics Master'!$A:$H,5,FALSE)),"Null")` };
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Type']})] =
         { t:'s', f:`IF(${zoneCell}="Null","Null",IFERROR(VLOOKUP(${key},'Logistics Master'!$A:$H,6,FALSE),"Normal"))` };
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Denied']})] =
-        { t:'b', f:`ISNUMBER(MATCH(LOWER($B${r})&"|"&"${nor(pname)}",'Disabled Customers'!$A:$A,0))` };
+        { t:'b', f:`ISNUMBER(MATCH(LOWER(${customerRef})&"|"&"${nor(pname)}",'Disabled Customers'!$A:$A,0))` };
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Rate']})] =
-        { t:'n', f:`IF(OR(${zoneCell}="Null",${deniedCell}=TRUE),"Null",IFERROR(VLOOKUP(${canonOriginExpr('$D'+r)}&"|"&"${nor(pname)}"&"|"&LOWER(${zoneCell}),'Logistic Cost'!$A:$D,4,FALSE),"Null"))` };
+        { t:'n', f:`IF(OR(${zoneCell}="Null",${deniedCell}=TRUE),"Null",IFERROR(VLOOKUP(${canonOriginExpr(originRef)}&"|"&"${nor(pname)}"&"|"&LOWER(${zoneCell}),'Logistic Cost'!$A:$D,4,FALSE),"Null"))` };
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Basic']})] =
-        { t:'n', f:`IF(OR(${rateCell}="Null",NOT(ISNUMBER($E${r})),$E${r}<=0),"Null",MAX(${k.minChg},${k.minWt}*${rateCell},$E${r}*${rateCell}))` };
+        { t:'n', f:`IF(OR(${rateCell}="Null",NOT(ISNUMBER(${cwRef})),${cwRef}<=0),"Null",MAX(${k.minChg},${k.minWt}*${rateCell},${cwRef}*${rateCell}))` };
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Appt']})] =
-        { t:'n', f:`IF(${basicCell}="Null","Null",IF($G${r}<>"Yes",0,${k.apptPerKg ? `MAX(${k.appt},$E${r})` : k.appt}))` };
+        { t:'n', f:`IF(${basicCell}="Null","Null",IF(${apptRef}<>"Yes",0,${k.apptPerKg ? `MAX(${k.appt},${cwRef})` : k.appt}))` };
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' FOV']})] =
-        { t:'n', f:`IF(${basicCell}="Null","Null",MAX(${k.fovMin},$F${r}*${k.fovPct}%))` };
+        { t:'n', f:`IF(${basicCell}="Null","Null",MAX(${k.fovMin},${invRef}*${k.fovPct}%))` };
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Fuel']})] =
         { t:'n', f:`IF(${basicCell}="Null","Null",${basicCell}*${k.fuelPct}%)` };
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' ODA']})] = { t:'n', f: k.oda === 'slab'
-        ? `IF(${basicCell}="Null","Null",IF(LOWER(${typeCell})<>"oda",0,IF($E${r}<51,1050,IF($E${r}<101,1150,IF($E${r}<251,1400,IF($E${r}<501,1550,IF($E${r}<1001,2000,IF($E${r}<2001,2200,8000))))))))`
+        ? `IF(${basicCell}="Null","Null",IF(LOWER(${typeCell})<>"oda",0,IF(${cwRef}<51,1050,IF(${cwRef}<101,1150,IF(${cwRef}<251,1400,IF(${cwRef}<501,1550,IF(${cwRef}<1001,2000,IF(${cwRef}<2001,2200,8000))))))))`
         : `IF(${basicCell}="Null","Null",IF(LOWER(${typeCell})<>"oda",0,${k.oda}))` };
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Total']})] =
         { t:'n', f:`IF(OR(${basicCell}="Null",${apptCell}="Null"),"Null",${basicCell}+${apptCell}+${fovCell}+${fuelCell}+${odaCell}+${k.docket})` };
