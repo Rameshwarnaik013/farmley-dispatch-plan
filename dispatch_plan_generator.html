@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-08-24.25</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-08-24.26</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -1605,6 +1605,7 @@ function runFreight(rows) {
     const S1 = offers[0] ? r2(offers[0].total) : '';
     const S2 = offers[1] ? r2(offers[1].total) : '';
     g.rows.forEach(r => {
+      r['Group Key'] = g.key;
       r['Lowest 1'] = L1; r['Lowest Score 1'] = S1;
       r['Lowest 2'] = L2; r['Lowest Score 2'] = S2;
     });
@@ -1639,7 +1640,7 @@ const PREVIEW_COLS = [
   'CC','Sales_Order_No','Sales_Order_Date','Po_No','po_expiry_date',
   'customer_group','client_type','Appt','Remark','Priority',
   'Final Dispatch Status','Dispatch_Status','If Dispatched, then EDD','EDD',
-  'Pending Kgs','Origin','Shipping State','Day','Customer','Item_Code','Branch',
+  'Pending Kgs','Origin','Group Key','Shipping State','Day','Customer','Item_Code','Branch',
   'Rea','Is CFA','Expected Source','CFA Serviceability Check','Order Corrected Remark',
   'Source Check','charge weight','Lowest 1','Lowest Score 1','Lowest 2','Lowest Score 2'
 ];
