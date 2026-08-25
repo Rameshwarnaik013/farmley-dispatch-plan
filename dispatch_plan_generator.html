@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-08-24.28</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-08-25.1</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -271,6 +271,7 @@ const CONDITIONS = [
   { sno:36, col:'Group Key / SO-level aggregation', rule:'REVISED 2026-08-24 — a single Sales Order can genuinely dispatch from more than one origin (e.g. some line items ex-Indore, some ex-CFA (GGN)). Rows are grouped by Sales_Order_No, EXCEPT Indore and Purnea rows each get their own group per SO (Group Key = "SO_No|Indore" or "SO_No|Purnea") — those are the two origins with a real, source-verified rate card. When a Sales Order has ONLY ONE origin overall (no split occurred, whatever that origin is), that single group still gets a full Lowest 1/2 the same as before — nothing changed for single-origin SOs. But when an SO DOES span multiple origins, the leftover portion — rows whose origin is neither Indore nor Purnea (CFA GGN, CFA BLR, UD Foods, Rebela, Kundli, ...), still blended into one bare-SO_No group — gets NO recommendation at all: Lowest 1, Lowest Score 1, Lowest 2, Lowest Score 2 (and the whole per-partner breakdown) are left blank/"Null" for that group, because those rates were only ever an Origin Alias extrapolation, not a verified card, and once an SO is known to be mixed there is no reliable single figure to quote for the unverified portion. Charge weight per group = SUM(Boxes*charge weight) of only that group\'s rows; Invoice value = SUM(Final Amount) of only that group\'s rows — never double-counted, a row belongs to exactly one group. Customer and Shipping Pincode are taken from the group\'s first row. Every row on the main sheet shows its OWN group\'s Lowest 1/2, not a value blended across the whole SO.' },
   { sno:37, col:'Logistic Partner 1-5',    rule:'VLOOKUP on Shipping Pincode into "Logistics Master _sheet". One row per pincode x partner, EACH WITH ITS OWN Zone and TYPE (Normal/ODA) — verified necessary: across the 1,535 pincodes served by all four current carriers, zero share a zone string (Delhivery uses North/West, Safexpress NORTH 1/NORTH 2, DP World hub codes, Xpressbees North/West) and TYPE disagrees on 31% of pincodes. A single Zone/TYPE per pincode cannot work. Partners absent from the pincode row are not quoted. Rows with STATUS = 0 are treated as not serviceable and excluded.' },
   { sno:38, col:'Lowest 1 / Lowest 2',                  rule:'For each partner named on the pincode row, the rate is looked up in "Logistic cost _master" by Logistic Partner + Origin + Shipping Zone. Origins are compared canonically, so the dispatch plan spelling "CFA (GGN)" matches the cost master spelling "CFA GGN" and "Purnea" matches "Purnia". Cost = MAX(Min Charge, Min Weight × Rate, ChargeWeight × Rate) + Appointment + FOV + Fuel + Docket + ODA, with per-partner constants (Delhivery 30kg/₹0/0% fuel/₹75 docket/₹700 ODA; Safexpress 20kg/₹250/10%/₹100/₹750 and FOV floored at ₹100; Xpressbees 30kg/₹350/10%/₹50, appointment = MAX(30, charge weight) and a weight-banded ODA of ₹1,050–₹8,000; DP World 10kg/₹350/10%/₹50/₹700). Appointment applies only when the customer is marked Appointment Applicable in the "customer" tab. A partner is skipped when "Disabled Customers_Master" lists it against that customer. Lowest 1 = cheapest partner and Lowest Score 1 its landed cost; Lowest 2 / Lowest Score 2 the runner-up. All four are repeated on every item row of the SO, and the full per-partner breakdown lands on the "Freight Comparison" sheet.' },
+  { sno:39, col:'Freight Constants / Xpressbees ODA Slab (masters)', rule:'ADDED 2026-08-25 — the per-partner numbers behind Condition 38 (Min Weight, Min Charge, Appointment Charge, whether Appointment is per-kg, FOV %, FOV Min, Fuel %, Docket Charge, and flat ODA charge) now live in their own editable "Freight Constants" tab in the Masters editor, one row per partner, instead of being hardcoded in the app. Xpressbees\' ODA is a weight-banded charge rather than a flat number, so its bands live in a second "Xpressbees ODA Slab" tab (Under (Kg) / Charge, ascending — a blank Under (Kg) on the last row means "everything above the previous band"). Edit either tab in the Masters UI to change a rate — the live preview reads them immediately, and the exported Excel VLOOKUPs its Basic/Appt/FOV/Fuel/Docket/ODA formulas against a "Freight Constants" reference sheet built from the same values (its ODA slab formula is regenerated from the current bands each export). If either tab is empty (e.g. an older master workbook without them), the app falls back to the original hardcoded values so nothing breaks.' },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -290,6 +291,10 @@ const MASTER_TABLES = [
     cols:['Locations','Item ID','Item Name','Final Charge weight','Indore','Purnia'] },
   { key:'customer', sheet:'customer',                   name:'Customer Appointments',
     cols:['Customer','Appointment Applicable'] },
+  { key:'constants', sheet:'Freight Constants',          name:'Freight Constants',
+    cols:['Logistic Partner','Min Weight (Kg)','Min Charge','Appointment Charge','Appointment Per Kg','FOV %','FOV Min','Fuel %','Docket Charge','ODA Charge'] },
+  { key:'odaSlab',  sheet:'Xpressbees ODA Slab',          name:'Xpressbees ODA Slab',
+    cols:['Under (Kg)','Charge'] },
 ];
 const MASTER_LS_KEY = 'farmley.dispatch.masters.v1';
 const MASTER_BUNDLED = 'masters.json';   // shipped with the app, see public/masters.json
@@ -1469,18 +1474,60 @@ async function run() {
    data — STATUS=0 rows, and the Disabled Customers list replacing the old
    hardcoded "Delhivery = Zepto Limited only" rule.
 ═══════════════════════════════════════════════════════════════════════════ */
-const PARTNER_CONST = {
+// Fallback values, used only when the "Freight Constants" / "Xpressbees ODA Slab"
+// masters have no rows (e.g. an older master workbook loaded before these tabs
+// existed). Otherwise getPartnerConst()/getOdaSlab() below read the live,
+// user-editable master instead — see the Masters tab.
+const PARTNER_CONST_DEFAULT = {
   'delhivery' : { minWt:30, minChg:0,   appt:250, apptPerKg:false, fovPct:0.1, fovMin:0,   fuelPct:0,  docket:75,  oda:700 },
   'safexpress': { minWt:20, minChg:250, appt:250, apptPerKg:false, fovPct:0.1, fovMin:100, fuelPct:10, docket:100, oda:750 },
   'xpressbees': { minWt:30, minChg:350, appt:30,  apptPerKg:true,  fovPct:0.1, fovMin:0,   fuelPct:10, docket:50,  oda:'slab' },
   'dp world'  : { minWt:10, minChg:350, appt:250, apptPerKg:false, fovPct:0.1, fovMin:0,   fuelPct:10, docket:50,  oda:700 },
 };
 // Xpressbees ODA bands: charge weight strictly less than `under` -> charge.
-const XB_ODA_SLAB = [
+const XB_ODA_SLAB_DEFAULT = [
   {under:51,charge:1050},{under:101,charge:1150},{under:251,charge:1400},
   {under:501,charge:1550},{under:1001,charge:2000},{under:2001,charge:2200},
   {under:Infinity,charge:8000},
 ];
+// Reads masters.constants (the "Freight Constants" master tab) into the same
+// shape PARTNER_CONST_DEFAULT used to be — one row per partner, keyed by
+// nor(partner). Falls back to the hardcoded defaults if that master is empty.
+function getPartnerConst() {
+  const rows = (masters && masters.constants) || [];
+  if (!rows.length) return PARTNER_CONST_DEFAULT;
+  const out = {};
+  rows.forEach(r => {
+    const key = nor(r['Logistic Partner']);
+    if (!key) return;
+    const odaRaw = String(r['ODA Charge']==null ? '' : r['ODA Charge']).trim();
+    out[key] = {
+      minWt: parseFloat(r['Min Weight (Kg)']) || 0,
+      minChg: parseFloat(r['Min Charge']) || 0,
+      appt: parseFloat(r['Appointment Charge']) || 0,
+      apptPerKg: /^(yes|true|1)$/i.test(String(r['Appointment Per Kg']||'').trim()),
+      fovPct: parseFloat(r['FOV %']) || 0,
+      fovMin: parseFloat(r['FOV Min']) || 0,
+      fuelPct: parseFloat(r['Fuel %']) || 0,
+      docket: parseFloat(r['Docket Charge']) || 0,
+      oda: /^slab$/i.test(odaRaw) ? 'slab' : (parseFloat(odaRaw) || 0),
+    };
+  });
+  return Object.keys(out).length ? out : PARTNER_CONST_DEFAULT;
+}
+// Reads masters.odaSlab (the "Xpressbees ODA Slab" master tab), sorted by
+// "Under (Kg)" ascending. A blank/non-numeric "Under (Kg)" is treated as the
+// open-ended top band (Infinity). Falls back to the hardcoded default bands.
+function getOdaSlab() {
+  const rows = (masters && masters.odaSlab) || [];
+  if (!rows.length) return XB_ODA_SLAB_DEFAULT;
+  const out = rows.map(r => {
+    const raw = String(r['Under (Kg)']==null ? '' : r['Under (Kg)']).trim();
+    const under = raw === '' || !isFinite(parseFloat(raw)) ? Infinity : parseFloat(raw);
+    return { under, charge: parseFloat(r['Charge']) || 0 };
+  }).sort((a,b) => a.under - b.under);
+  return out.length ? out : XB_ODA_SLAB_DEFAULT;
+}
 // Origin spellings differ between the plan and the cost master
 // ("CFA (GGN)" vs "CFA GGN", "Purnea" vs "Purnia"). Compare canonically.
 const canonOrigin = s => nor(s).replace(/[()]/g,'').replace(/\s+/g,' ').trim()
@@ -1489,6 +1536,12 @@ const canonOrigin = s => nor(s).replace(/[()]/g,'').replace(/\s+/g,' ').trim()
 function runFreight(rows) {
   freightRows = [];
   if (!masters) { log('No masters loaded — Lowest 1 / Lowest 2 left blank (load them in the Masters tab)','info'); return; }
+  // Per-partner constants and the Xpressbees ODA slab, read from the editable
+  // "Freight Constants" / "Xpressbees ODA Slab" masters (Masters tab) instead
+  // of the hardcoded defaults — shadows the module-level names on purpose so
+  // quote() below picks these up with no other change.
+  const PARTNER_CONST = getPartnerConst();
+  const XB_ODA_SLAB = getOdaSlab();
 
   /* Pincode -> serving partners, each with its OWN zone and TYPE.
      STATUS 0 disables that pincode for that partner. First row wins on
@@ -2013,6 +2066,39 @@ function exportToExcel() {
   }));
   const wsCA = XLSX.utils.json_to_sheet(caRefRows, {header:['Customer','Appointment Applicable']});
 
+  // Freight Constants / Xpressbees ODA Slab reference sheets — the per-partner
+  // formulas below VLOOKUP their numbers from here instead of embedding them as
+  // literals, so editing the Freight Constants tab in the Masters UI and
+  // re-exporting is enough to update every Basic/Appt/FOV/Fuel/Docket formula.
+  // Falls back to the hardcoded defaults if that master has no rows (older
+  // master workbook loaded before these tabs existed).
+  const constRowsSrc = (masters && masters.constants && masters.constants.length) ? masters.constants
+    : Object.keys(PARTNER_CONST_DEFAULT).map(k => {
+        const d = PARTNER_CONST_DEFAULT[k];
+        return { 'Logistic Partner': FC_PARTNERS.find(p => nor(p) === k) || k,
+                 'Min Weight (Kg)': d.minWt, 'Min Charge': d.minChg, 'Appointment Charge': d.appt,
+                 'Appointment Per Kg': d.apptPerKg ? 'Yes' : 'No', 'FOV %': d.fovPct, 'FOV Min': d.fovMin,
+                 'Fuel %': d.fuelPct, 'Docket Charge': d.docket, 'ODA Charge': d.oda };
+      });
+  const fcRefRows = constRowsSrc.map(r => ({
+    Key: nor(r['Logistic Partner']), 'Logistic Partner': r['Logistic Partner']||'',
+    'Min Weight (Kg)': parseFloat(r['Min Weight (Kg)'])||0, 'Min Charge': parseFloat(r['Min Charge'])||0,
+    'Appointment Charge': parseFloat(r['Appointment Charge'])||0, 'Appointment Per Kg': r['Appointment Per Kg']||'',
+    'FOV %': parseFloat(r['FOV %'])||0, 'FOV Min': parseFloat(r['FOV Min'])||0,
+    'Fuel %': parseFloat(r['Fuel %'])||0, 'Docket Charge': parseFloat(r['Docket Charge'])||0,
+    'ODA Charge': r['ODA Charge']==null ? '' : r['ODA Charge'],
+  }));
+  const wsFConst = XLSX.utils.json_to_sheet(fcRefRows, {header:['Key','Logistic Partner','Min Weight (Kg)','Min Charge','Appointment Charge','Appointment Per Kg','FOV %','FOV Min','Fuel %','Docket Charge','ODA Charge']});
+
+  const odaSlabSrc = (masters && masters.odaSlab && masters.odaSlab.length) ? masters.odaSlab
+    : XB_ODA_SLAB_DEFAULT.map(b => ({ 'Under (Kg)': isFinite(b.under) ? b.under : '', Charge: b.charge }));
+  const odaSlabRefRows = odaSlabSrc.map(r => {
+    const raw = String(r['Under (Kg)']==null ? '' : r['Under (Kg)']).trim();
+    const under = raw === '' || !isFinite(parseFloat(raw)) ? '' : parseFloat(raw);
+    return { 'Under (Kg)': under, Charge: parseFloat(r['Charge'])||0 };
+  }).sort((a,b) => (a['Under (Kg)']===''?Infinity:a['Under (Kg)']) - (b['Under (Kg)']===''?Infinity:b['Under (Kg)']));
+  const wsOdaSlab = XLSX.utils.json_to_sheet(odaSlabRefRows, {header:['Under (Kg)','Charge']});
+
   /* ── Build reference sheets ────────────────────────────────────────── */
   // LEAD TIME sheet: Origin | Shipping State | Day | Lookup_Key (helper)
   const ltExport = refData.leadtime.map(r => {
@@ -2235,6 +2321,8 @@ function exportToExcel() {
   XLSX.utils.book_append_sheet(wb, wsLC, 'Logistic Cost');
   XLSX.utils.book_append_sheet(wb, wsDC, 'Disabled Customers');
   XLSX.utils.book_append_sheet(wb, wsCA, 'Customer Appt');
+  XLSX.utils.book_append_sheet(wb, wsFConst, 'Freight Constants');
+  XLSX.utils.book_append_sheet(wb, wsOdaSlab, 'Xpressbees ODA Slab');
 
   /* SO-level freight comparison (Conditions 36-38), fully formula-driven so every
      number is traceable: Charge weight / Invoice value are SUMIFs over the main
@@ -2245,6 +2333,26 @@ function exportToExcel() {
      approach the original RPC Indore workbook itself used for its Master Sheet.
      Always appended, even with 0 SOs, so the main sheet's VLOOKUPs above never
      reference a sheet that does not exist. */
+  // Only used here to decide FORMULA SHAPE (Xpressbees' ODA is a weight-slab,
+  // everyone else's is flat; Xpressbees' Appointment charge is per-kg, everyone
+  // else's is flat) — the actual NUMBERS are VLOOKUP'd from the Freight
+  // Constants sheet below so editing that master and re-exporting is enough.
+  const PARTNER_CONST = getPartnerConst();
+  // Nested-IF chain over the CURRENT "Xpressbees ODA Slab" master rows (ascending
+  // by Under (Kg)), e.g. IF(cw<51,1050,IF(cw<101,1150,...,8000)). A blank Under
+  // (Kg) on the last row means "open-ended" (no upper bound, just its charge);
+  // re-generated from whatever odaSlabRefRows holds at export time, so editing
+  // that master tab and re-exporting picks up new bands/charges.
+  const buildOdaSlabFormula = cwRefLocal => {
+    const bands = odaSlabRefRows;
+    if (!bands.length) return '0';
+    const last = bands[bands.length - 1];
+    let formula = last['Under (Kg)'] === '' ? String(last.Charge) : `IF(${cwRefLocal}<${last['Under (Kg)']},${last.Charge},0)`;
+    for (let i = bands.length - 2; i >= 0; i--) {
+      formula = `IF(${cwRefLocal}<${bands[i]['Under (Kg)']},${bands[i].Charge},${formula})`;
+    }
+    return formula;
+  };
   const wsF = {};
   XLSX.utils.sheet_add_aoa(wsF, [FCOLS], {origin:'A1'});
   freightRows.forEach((fr, i) => {
@@ -2315,19 +2423,27 @@ function exportToExcel() {
         { t:'b', f:`ISNUMBER(MATCH(LOWER(${customerRef})&"|"&"${nor(pname)}",'Disabled Customers'!$A:$A,0))` };
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Rate']})] =
         { t:'n', f:`IF(OR(${zoneCell}="Null",${deniedCell}=TRUE),"Null",IFERROR(VLOOKUP(${canonOriginExpr(originRef)}&"|"&"${nor(pname)}"&"|"&LOWER(${zoneCell}),'Logistic Cost'!$A:$D,4,FALSE),"Null"))` };
+      // Numbers come from the "Freight Constants" master via VLOOKUP (Key = the
+      // canonical partner name in column A) instead of being embedded as
+      // literals — editing that master tab and re-exporting is enough to
+      // change Min Weight/Min Charge/Appointment/FOV/Fuel/Docket/ODA for any
+      // partner without touching this code.
+      const fcRow = pk => `VLOOKUP("${nor(pname)}",'Freight Constants'!$A:$K,${pk},FALSE)`;
+      const minWtV = fcRow(3), minChgV = fcRow(4), apptChgV = fcRow(5), fovPctV = fcRow(7),
+            fovMinV = fcRow(8), fuelPctV = fcRow(9), docketV = fcRow(10), odaFlatV = fcRow(11);
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Basic']})] =
-        { t:'n', f:`IF(OR(${rateCell}="Null",NOT(ISNUMBER(${cwRef})),${cwRef}<=0),"Null",MAX(${k.minChg},${k.minWt}*${rateCell},${cwRef}*${rateCell}))` };
+        { t:'n', f:`IF(OR(${rateCell}="Null",NOT(ISNUMBER(${cwRef})),${cwRef}<=0),"Null",MAX(${minChgV},${minWtV}*${rateCell},${cwRef}*${rateCell}))` };
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Appt']})] =
-        { t:'n', f:`IF(${basicCell}="Null","Null",IF(${apptRef}<>"Yes",0,${k.apptPerKg ? `MAX(${k.appt},${cwRef})` : k.appt}))` };
+        { t:'n', f:`IF(${basicCell}="Null","Null",IF(${apptRef}<>"Yes",0,${k.apptPerKg ? `MAX(${apptChgV},${cwRef})` : apptChgV}))` };
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' FOV']})] =
-        { t:'n', f:`IF(${basicCell}="Null","Null",MAX(${k.fovMin},${invRef}*${k.fovPct}%))` };
+        { t:'n', f:`IF(${basicCell}="Null","Null",MAX(${fovMinV},${invRef}*${fovPctV}/100))` };
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Fuel']})] =
-        { t:'n', f:`IF(${basicCell}="Null","Null",${basicCell}*${k.fuelPct}%)` };
+        { t:'n', f:`IF(${basicCell}="Null","Null",${basicCell}*${fuelPctV}/100)` };
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' ODA']})] = { t:'n', f: k.oda === 'slab'
-        ? `IF(${basicCell}="Null","Null",IF(LOWER(${typeCell})<>"oda",0,IF(${cwRef}<51,1050,IF(${cwRef}<101,1150,IF(${cwRef}<251,1400,IF(${cwRef}<501,1550,IF(${cwRef}<1001,2000,IF(${cwRef}<2001,2200,8000))))))))`
-        : `IF(${basicCell}="Null","Null",IF(LOWER(${typeCell})<>"oda",0,${k.oda}))` };
+        ? `IF(${basicCell}="Null","Null",IF(LOWER(${typeCell})<>"oda",0,${buildOdaSlabFormula(cwRef)}))`
+        : `IF(${basicCell}="Null","Null",IF(LOWER(${typeCell})<>"oda",0,${odaFlatV}))` };
       wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx[pname+' Total']})] =
-        { t:'n', f:`IF(OR(${basicCell}="Null",${apptCell}="Null"),"Null",${basicCell}+${apptCell}+${fovCell}+${fuelCell}+${odaCell}+${k.docket})` };
+        { t:'n', f:`IF(OR(${basicCell}="Null",${apptCell}="Null"),"Null",${basicCell}+${apptCell}+${fovCell}+${fuelCell}+${odaCell}+${docketV})` };
     });
 
     // Lowest Score 1: smallest of the 4 partner Totals, ignoring "Null" text.
