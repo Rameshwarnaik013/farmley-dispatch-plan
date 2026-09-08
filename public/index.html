@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-08-25.1</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-09-08.1</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -274,6 +274,95 @@ const CONDITIONS = [
   { sno:39, col:'Freight Constants / Xpressbees ODA Slab (masters)', rule:'ADDED 2026-08-25 — the per-partner numbers behind Condition 38 (Min Weight, Min Charge, Appointment Charge, whether Appointment is per-kg, FOV %, FOV Min, Fuel %, Docket Charge, and flat ODA charge) now live in their own editable "Freight Constants" tab in the Masters editor, one row per partner, instead of being hardcoded in the app. Xpressbees\' ODA is a weight-banded charge rather than a flat number, so its bands live in a second "Xpressbees ODA Slab" tab (Under (Kg) / Charge, ascending — a blank Under (Kg) on the last row means "everything above the previous band"). Edit either tab in the Masters UI to change a rate — the live preview reads them immediately, and the exported Excel VLOOKUPs its Basic/Appt/FOV/Fuel/Docket/ODA formulas against a "Freight Constants" reference sheet built from the same values (its ODA slab formula is regenerated from the current bands each export). If either tab is empty (e.g. an older master workbook without them), the app falls back to the original hardcoded values so nothing breaks.' },
 ];
 
+/* ── CFA SKU master seed (Conditions 20, 27, 29-32) ────────────────────────
+   The Item_Codes that CFA (GGN) / CFA (BLR) can service, with the SKU name
+   for each so the list is readable. This is the STARTING content of the
+   "CFA SKU Master" table in the Masters tab — once that table exists in the
+   browser (or in an uploaded master workbook) it is what the run reads, so
+   codes can be added or removed there without touching this file. Matching
+   is on Item Code; Item Name is descriptive only.
+   Two codes have no row in the SKU charge-weight master, so their names are
+   blank here and can be filled in from the Masters tab. */
+const CFA_SKU_SEED = [
+  ['Dates_04-30057','Apple Pie Date Bite Farmley Tin Jar 200g'],
+  ['Dates_15-30109','Classic Date Bites Farmley Sachet 20 g - Single Serve'],
+  ['Dates_15-30110','Dark Choco Orange Date Bites Farmley Sachet 20 g - Single Serve'],
+  ['Dates_15-30111','Apple Pie Date Bite Farmley sachet 20 g - Single serve'],
+  ['Dates_4-20183',''],
+  ['Dates_4-20161','Coffee Rush Date Bite Farmley Sachet 20g- Single Serve'],
+  ['Dates_4-20162','Coffee Rush Date Bite Farmley Tin Jar 200g'],
+  ['Dates_4-30101','Dark Choco-Orange Date Bite Farmley Tin Jar 200g'],
+  ['Dates_4-30567','Classic Date Bites Farmley Tin Jar 200 g'],
+  ['Dry Fruit Mix_15-2402','Trail Mix Farmley Standee Pouch 200 g'],
+  ['Dry Fruit Mix_15-2403','Seed Mix Farmley Standee Pouch 200 g'],
+  ['Dry Fruit Mix_15-2404','Berry Mix Farmley Standee Pouch 200 g'],
+  ['Dry Fruit Mix_15-2800','Premium Panchmeva Farmley Jar 425 g- Institutional'],
+  ['Dry Fruit Mix_15-2801','Premium Panchmeva Farmley Jar 405g'],
+  ['Dry Fruit Mix_15-2856','Premium Panchmeva Farmley Pillow Pouch 21g (In SRP 8 Pcs Each)'],
+  ['Dry Fruit Mix_15-2858','Party Mix Farmley Pillow Pouch 21g (In SRP 8 Pcs Each)'],
+  ['Dry Fruit Mix_15-2950','Premium Panchmeva Farmley Pillow Pouch 21 g - Pack of 10 (Ladi)'],
+  ['Dry Fruit Mix_15-2951','Mexican Peri Peri Snack Mix Farmley 21g - Pack of 10 (Ladi)'],
+  ['Dry Fruit Mix_15-30155','Premium Panchmeva Farmley Pillow Pouch 30g- single serve'],
+  ['Dry Fruit Mix_15-30158','Mexican Peri-Peri Snack Mix Farmley Pillow Pouch 35 g- Single Serve'],
+  ['Dry Fruit Mix_15-30159','Mexican Peri Peri Snack Mix Farmley Composite Jar 325 g'],
+  ['Dry Fruit Mix_15-30160','Trail Mix Farmley Composite Jar 325 g'],
+  ['Makhana_7-2979','Roasted & Flavored Makhana -Cheddar Cheese Farmley Composite Jar 77 g'],
+  ['Makhana_7-2980','Roasted & Flavored Makhana - Mint Farmley Composite Jar 77 g'],
+  ['Makhana_7-2981','Roasted & Flavored Makhana - Black Pepper Farmley Composite jar 77 g'],
+  ['Makhana_7-2982','Roasted & Flavored Makhana - Achaari Farmley Composite Jar 77 g'],
+  ['Makhana_7-2983','Roasted & Flavored Makhana - Peri Peri Farmley Composite Jar 77 g'],
+  ['Makhana_7-2984','Roasted & Salted Makhana Farmley Composite Jar 77 g'],
+  ['Makhana_7-2985','Roasted & Flavored Makhana - Tangy Tomato Farmley Composite Jar 77 g'],
+  ['Makhana_7-2986','Roasted & Flavored Makhana -Cream and Onion Farmley Composite Jar 77 g'],
+  ['Makhana_7-2992','Roasted & Flavoured Peri Peri Makhana Farmley Jar 55 g'],
+  ['Makhana_7-2993','Roasted & Flavoured Minty Pudina Makhana Farmley Jar 55 g'],
+  ['Makhana_7-2994','Roasted & Salted Makhana Farmley Jar 55 g'],
+  ['Makhana_7-2995','Roasted & Flavoured Cream & Onion Makhana Farmley Jar 55 g'],
+  ['Makhana_7-2996','Roasted & Flavoured Tangy Tomato Makhana Farmley Jar 55 g'],
+  ['Makhana_7-2997','Roasted & Flavoured Achaari Makhana Farmley Jar 55 g'],
+  ['Makhana_7-2998','Roasted & Flavoured Cheddar Cheese Makhana Farmley Jar 55 g'],
+  ['Makhana_7-2999','Roasted & Flavoured Salt & Pepper Makhana Farmley Jar 55 g'],
+  ['Makhana_7-30073','Roasted & Flavoured Makhana - Peri Peri Farmley Pillow Pouch 14g-Ladi'],
+  ['Makhana_7-30074','Roasted & Flavoured Makhana - Cream & Onion Farmley Pillow Pouch 14g-Ladi'],
+  ['Makhana_7-30075','Roasted & Flavoured Makhana - Tangy Tomato Farmley Pillow Pouch 14g-Ladi'],
+  ['Makhana_7-30079','Roasted & Flavoured Makhana - Achaari Farmley Pillow Pouch 14g-Ladi'],
+  ['Makhana_7-30096','Prasadam Makhana Center Seal Pouch 100 g-NEW'],
+  ['Makhana_7-30097','Prasadam Makhana Farmley Center Seal Pouch 60g-New'],
+  ['Makhana_7-30098','Prasadam Makhana Center Seal Pouch 200 g-NEW'],
+  ['Makhana_7-30135','Roasted & Flavoured Makhana - Lemon Chilli Farmley Composite Jar 55g'],
+  ['Makhana_7-30136','Roasted & Flavoured Makhana - Lemon Chilli Farmley Composite Jar 77 g'],
+  ['Makhana_7-30140','Prasadam Makhana Farmley Center Seal Pouch 180 g'],
+  ['Makhana_7-30146','Roasted & Flavored Makhana- Cheesy cheddar 20g'],
+  ['Makhana_7-30147','Roasted & Flavored Makhana-Lemon Chilli 20g'],
+  ['Makhana_7-30149','Roasted & Flavored Makhana-Minty Pudina 20g'],
+  ['Makhana_7-30151','Roasted & Flavored Makhana - Tangy Tomato Farmley Pillow Pouch 20 g'],
+  ['Makhana_7-30152','Roasted & Flavored Makhana - Cream & Onion Farmley Pillow Pouch 20 g'],
+  ['Makhana_7-30153','Roasted & Flavored Makhana - Peri Peri Farmley Pillow Pouch 20 g'],
+  ['Makhana_7-30154','Roasted & Flavored Makhana - Achaari Farmley Pillow Pouch 20 g'],
+  ['Makhana_7-30155','Roasted & Salted Makhana Farmley Pillow Pouch 20 g'],
+  ['Seeds_11-20155','Premium Watermelon Seeds Farmley Standee Pouch 100 gms'],
+  ['Seeds_11-20160','Roasted & Salted Pumpkin seeds Pillow Pouch Farmley 24 g- single serve'],
+  ['Seeds_11-20161','Chia seeds Farmley Standee Pouch 250 g'],
+  ['Seeds_11-20162','Sunflower seeds Farmley Standee Pouch 250 g'],
+  ['Seeds_11-20163','Pumpkin seeds Farmley Standee Pouch 250 g'],
+  ['Seeds_11-2541','Premium Chia Seeds Farmley Standee Pouch 200 g'],
+  ['Seeds_11-2542','Premium Jumbo Pumpkin Seeds Farmley Standee Pouch 200 g'],
+  ['Seeds_11-2549','Premium Sunflower Seeds Farmley Standee Pouch 200 g'],
+  ['Seeds_11-2550','Premium Flax Seeds Farmley Standee Pouch 200 g'],
+  ['Seeds_11-2868','Quinoa seeds Farmley Standee Pouch 500g'],
+  ['Seeds_11-2932','Basil Seeds Farmley Standee pouch 300g'],
+  ['Seeds_11-30135','Salted Pumpkin Seeds Pillow Pouch Farmley 24 g (In SRP 8 Pcs Each)'],
+  ['Seeds_11-30142','Salted Pumpkin seeds Pillow Pouch Farmley 24 g-Ladi'],
+  ['Makhana_7-30190',''],
+  ['Dates_4-2566','Classic Date Bites Farmley Monocarton 240 g - Pack of 12 (20 g Each)'],
+  ['Dates_4-30106','Dark Choco Orange Date Bites Farmley Sachet 20 g'],
+  ['Dates_04-30567','Apple Pie Date Bite Farmley Sachet 20 g'],
+  ['Dates_4-20171','Coffee Rush Date Bite Farmley Mono Carton Farmley 240 g - Pack of 12 (20 g Each)'],
+  ['Dry Fruit Mix_15-30179','Premium Panchmeva Farmley Pillow Pouch 20 g - Pack of 10 (Ladi)'],
+  ['Dry Fruit Mix_15-30180','Premium Panchmeva Farmley Pillow Pouch 20g (In SRP 8 Pcs Each)'],
+  ['Dates_15-30103','Assorted Pack Farmley 360g Monocarton- Dark Choco Orange Date Bite 120 g, Classic Date Bite 120g, Apple Pie Date Bite 120g Pack of 18 (20 g)'],
+];
+
 /* ═══════════════════════════════════════════════════════════════════════════
    MASTER DATA STORE
    Five tables parsed once from the Pincode & Rate Master workbook, then kept
@@ -295,7 +384,18 @@ const MASTER_TABLES = [
     cols:['Logistic Partner','Min Weight (Kg)','Min Charge','Appointment Charge','Appointment Per Kg','FOV %','FOV Min','Fuel %','Docket Charge','ODA Charge'] },
   { key:'odaSlab',  sheet:'Xpressbees ODA Slab',          name:'Xpressbees ODA Slab',
     cols:['Under (Kg)','Charge'] },
+  { key:'cfa',      sheet:'CFA SKU Master',              name:'CFA SKU Master',
+    cols:['Item Code','Item Name'], seed: CFA_SKU_SEED },
 ];
+
+/* A table declared with a `seed` starts populated from code when neither the
+   browser copy nor the uploaded workbook carries it — that way an existing
+   stored master (saved before the table existed) still shows the full list
+   instead of an empty grid, and the run behaves exactly as it did before. */
+function seedRowsFor(t) {
+  if (!t.seed) return [];
+  return t.seed.map(arr => { const o = {}; t.cols.forEach((c,i) => { o[c] = arr[i] ?? ''; }); return o; });
+}
 const MASTER_LS_KEY = 'farmley.dispatch.masters.v1';
 const MASTER_BUNDLED = 'masters.json';   // shipped with the app, see public/masters.json
 let masters = null;        // {pincode:[...], cost:[...], ...}
@@ -319,12 +419,13 @@ function unpackMasters(p) {
   const out = {};
   MASTER_TABLES.forEach(t => {
     const blk = p[t.key];
-    if (!blk) { out[t.key] = []; return; }
-    if (Array.isArray(blk)) { out[t.key] = blk; return; }   // legacy object form
+    if (!blk) { out[t.key] = seedRowsFor(t); return; }
+    if (Array.isArray(blk)) { out[t.key] = blk.length ? blk : seedRowsFor(t); return; }   // legacy object form
     const cols = blk.cols || t.cols;
     out[t.key] = (blk.rows||[]).map(arr => {
       const o = {}; cols.forEach((c,i) => { o[c] = arr[i]; }); return o;
     });
+    if (!out[t.key].length) out[t.key] = seedRowsFor(t);
   });
   return out;
 }
@@ -374,14 +475,16 @@ async function loadMasters(input) {
     const missing = [];
     MASTER_TABLES.forEach(t => {
       const rows = sheetByName(wb, t.sheet, t.name);
-      if (!rows) { missing.push(t.sheet); next[t.key] = []; return; }
+      if (!rows) { if (!t.seed) missing.push(t.sheet); next[t.key] = seedRowsFor(t); return; }
       next[t.key] = rows.map(r => {
         const o = {};
         t.cols.forEach(c => { o[c] = pickCol(r, c); });
         return o;
       });
     });
-    if (missing.length === MASTER_TABLES.length) {
+    // Seeded tables never land in `missing` (they fall back to code), so the
+    // "nothing usable in this workbook" test counts only the un-seeded ones.
+    if (missing.length === MASTER_TABLES.filter(t => !t.seed).length) {
       alert('That workbook has none of the expected master tabs.\nExpected: ' + MASTER_TABLES.map(t=>t.sheet).join(', '));
       return;
     }
@@ -843,88 +946,15 @@ async function run() {
   ]);
 
   /* ── Common CFA item code list (Conditions 20 & 27) ───────────────
-     ONE list of 77 Item_Codes shared by BOTH CFA (GGN) and CFA (BLR).
-     Business-supplied (sku (6).xlsx). Matching is on Item_Code, not
-     Item_Name. */
-  const CFA_COMMON_ITEM_CODES = new Set([
-    'dates_04-30057',
-    'dates_15-30109',
-    'dates_15-30110',
-    'dates_15-30111',
-    'dates_4-20183',
-    'dates_4-20161',
-    'dates_4-20162',
-    'dates_4-30101',
-    'dates_4-30567',
-    'dry fruit mix_15-2402',
-    'dry fruit mix_15-2403',
-    'dry fruit mix_15-2404',
-    'dry fruit mix_15-2800',
-    'dry fruit mix_15-2801',
-    'dry fruit mix_15-2856',
-    'dry fruit mix_15-2858',
-    'dry fruit mix_15-2950',
-    'dry fruit mix_15-2951',
-    'dry fruit mix_15-30155',
-    'dry fruit mix_15-30158',
-    'dry fruit mix_15-30159',
-    'dry fruit mix_15-30160',
-    'makhana_7-2979',
-    'makhana_7-2980',
-    'makhana_7-2981',
-    'makhana_7-2982',
-    'makhana_7-2983',
-    'makhana_7-2984',
-    'makhana_7-2985',
-    'makhana_7-2986',
-    'makhana_7-2992',
-    'makhana_7-2993',
-    'makhana_7-2994',
-    'makhana_7-2995',
-    'makhana_7-2996',
-    'makhana_7-2997',
-    'makhana_7-2998',
-    'makhana_7-2999',
-    'makhana_7-30073',
-    'makhana_7-30074',
-    'makhana_7-30075',
-    'makhana_7-30079',
-    'makhana_7-30096',
-    'makhana_7-30097',
-    'makhana_7-30098',
-    'makhana_7-30135',
-    'makhana_7-30136',
-    'makhana_7-30140',
-    'makhana_7-30146',
-    'makhana_7-30147',
-    'makhana_7-30149',
-    'makhana_7-30151',
-    'makhana_7-30152',
-    'makhana_7-30153',
-    'makhana_7-30154',
-    'makhana_7-30155',
-    'seeds_11-20155',
-    'seeds_11-20160',
-    'seeds_11-20161',
-    'seeds_11-20162',
-    'seeds_11-20163',
-    'seeds_11-2541',
-    'seeds_11-2542',
-    'seeds_11-2549',
-    'seeds_11-2550',
-    'seeds_11-2868',
-    'seeds_11-2932',
-    'seeds_11-30135',
-    'seeds_11-30142',
-    'makhana_7-30190',
-    'dates_4-2566',
-    'dates_4-30106',
-    'dates_04-30567',
-    'dates_4-20171',
-    'dry fruit mix_15-30179',
-    'dry fruit mix_15-30180',
-    'dates_15-30103',
-  ].map(s => s.toLowerCase()));
+     ONE list of Item_Codes shared by BOTH CFA (GGN) and CFA (BLR).
+     Read from the editable "CFA SKU Master" table (Masters tab) so rows
+     can be added there; it starts as CFA_SKU_SEED, the same 77 codes this
+     was hard-coded to before. Matching is on Item_Code, not Item_Name. */
+  const CFA_COMMON_ITEM_CODES = new Set(
+    ((masters && masters.cfa && masters.cfa.length)
+       ? masters.cfa.map(r => r['Item Code'])
+       : CFA_SKU_SEED.map(a => a[0]))
+    .map(nor).filter(Boolean));
   const CFA_BLR_STATES = new Set([
     'telangana','andhra pradesh','karnataka','tamil nadu','kerala'
   ]);
