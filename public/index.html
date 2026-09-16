@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-09-15.2</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-09-16.1</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -273,6 +273,7 @@ const CONDITIONS = [
   { sno:38, col:'Lowest 1 / Lowest 2',                  rule:'For each partner named on the pincode row, the rate is looked up in "Logistic cost _master" by Logistic Partner + Origin + Shipping Zone. Origins are compared canonically, so the dispatch plan spelling "CFA (GGN)" matches the cost master spelling "CFA GGN" and "Purnea" matches "Purnia". Cost = MAX(Min Charge, Min Weight × Rate, ChargeWeight × Rate) + Appointment + FOV + Fuel + Docket + ODA, with per-partner constants (Delhivery 30kg/₹0/0% fuel/₹75 docket/₹700 ODA; Safexpress 20kg/₹250/10%/₹100/₹750 and FOV floored at ₹100; Xpressbees 30kg/₹350/10%/₹50, appointment = MAX(30, charge weight) and a weight-banded ODA of ₹1,050–₹8,000; DP World 10kg/₹350/10%/₹50/₹700). Appointment applies only when the customer is marked Appointment Applicable in the "customer" tab. A partner is skipped when "Disabled Customers_Master" lists it against that customer. Lowest 1 = cheapest partner and Lowest Score 1 its landed cost; Lowest 2 / Lowest Score 2 the runner-up. All four are repeated on every item row of the SO, and the full per-partner breakdown lands on the "Freight Comparison" sheet.' },
   { sno:39, col:'Freight Constants / Xpressbees ODA Slab (masters)', rule:'ADDED 2026-08-25 — the per-partner numbers behind Condition 38 (Min Weight, Min Charge, Appointment Charge, whether Appointment is per-kg, FOV %, FOV Min, Fuel %, Docket Charge, and flat ODA charge) now live in their own editable "Freight Constants" tab in the Masters editor, one row per partner, instead of being hardcoded in the app. Xpressbees\' ODA is a weight-banded charge rather than a flat number, so its bands live in a second "Xpressbees ODA Slab" tab (Under (Kg) / Charge, ascending — a blank Under (Kg) on the last row means "everything above the previous band"). Edit either tab in the Masters UI to change a rate — the live preview reads them immediately, and the exported Excel VLOOKUPs its Basic/Appt/FOV/Fuel/Docket/ODA formulas against a "Freight Constants" reference sheet built from the same values (its ODA slab formula is regenerated from the current bands each export). If either tab is empty (e.g. an older master workbook without them), the app falls back to the original hardcoded values so nothing breaks.' },
   { sno:40, col:'Priority (Quick Commerce Source Check reason)', rule:'ADDED 2026-09-15, wording REVISED 2026-09-15 — additive, does not change Rea, Source Check, Expected Source, Order Corrected Remark, or Priority\'s existing Rea-FALSE reason text. When customer_group is Quick Commerce AND Rea = "TRUE" (so Priority would otherwise stay blank) AND Source Check = "FALSE", Priority is now filled with "Expected <Order Corrected Remark value>" (e.g. "Expected CFA BLR") — matching the terse "Expected X" style already used by the Rea-FALSE reason. Every other row (any other customer_group, or Rea not exactly "TRUE", or Source Check "TRUE") is unaffected.' },
+  { sno:41, col:'Origin (Modern Trade / Avenue Supermarts Ltd)', rule:'ADDED 2026-09-16 — additive origin override gated on BOTH customer_group = Modern Trade AND Customer = Avenue Supermarts Ltd. By Item_Group: Makhana → Origin = Purnea; Desserts → Origin = Kundli; every other Item_Group → Origin = Indore. Runs alongside the other origin overrides (after the Quick Commerce Branch map, before Day is computed). Any row that is not both Modern Trade AND Avenue Supermarts Ltd is unaffected and keeps whatever Origin the rules above it already produced.' },
 ];
 
 /* ── CFA SKU master seed (Conditions 20, 27, 29-32) ────────────────────────
@@ -1196,6 +1197,22 @@ async function run() {
     if (QC_GROUPS.has(nor(custGroup))) {
       const mappedOrigin = QC_BRANCH_ORIGIN[nor(row[COL.Branch])];
       if (mappedOrigin !== undefined) origin = mappedOrigin;
+    }
+
+    /* ── CONDITION 41: Modern Trade + Avenue Supermarts Ltd → Origin by
+       Item_Group. Additive override, gated on BOTH customer_group =
+       Modern Trade AND Customer = Avenue Supermarts Ltd:
+         Item_Group Makhana  -> Purnea
+         Item_Group Desserts -> Kundli
+         anything else       -> Indore
+       Any other row (different customer_group, different Customer, or
+       both) is unaffected and keeps whatever Origin the rules above
+       already produced. */
+    if (nor(custGroup) === 'modern trade' && nor(customerVal) === 'avenue supermarts ltd') {
+      const ig41 = nor(row[COL.ItemGroup] || row['Item_Group'] || '');
+      if (ig41 === 'makhana') origin = 'Purnea';
+      else if (ig41 === 'desserts') origin = 'Kundli';
+      else origin = 'Indore';
     }
 
     /* CONDITION 5: Day from Lead Time */
