@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-09-16.1</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-09-21.1</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -274,6 +274,7 @@ const CONDITIONS = [
   { sno:39, col:'Freight Constants / Xpressbees ODA Slab (masters)', rule:'ADDED 2026-08-25 — the per-partner numbers behind Condition 38 (Min Weight, Min Charge, Appointment Charge, whether Appointment is per-kg, FOV %, FOV Min, Fuel %, Docket Charge, and flat ODA charge) now live in their own editable "Freight Constants" tab in the Masters editor, one row per partner, instead of being hardcoded in the app. Xpressbees\' ODA is a weight-banded charge rather than a flat number, so its bands live in a second "Xpressbees ODA Slab" tab (Under (Kg) / Charge, ascending — a blank Under (Kg) on the last row means "everything above the previous band"). Edit either tab in the Masters UI to change a rate — the live preview reads them immediately, and the exported Excel VLOOKUPs its Basic/Appt/FOV/Fuel/Docket/ODA formulas against a "Freight Constants" reference sheet built from the same values (its ODA slab formula is regenerated from the current bands each export). If either tab is empty (e.g. an older master workbook without them), the app falls back to the original hardcoded values so nothing breaks.' },
   { sno:40, col:'Priority (Quick Commerce Source Check reason)', rule:'ADDED 2026-09-15, wording REVISED 2026-09-15 — additive, does not change Rea, Source Check, Expected Source, Order Corrected Remark, or Priority\'s existing Rea-FALSE reason text. When customer_group is Quick Commerce AND Rea = "TRUE" (so Priority would otherwise stay blank) AND Source Check = "FALSE", Priority is now filled with "Expected <Order Corrected Remark value>" (e.g. "Expected CFA BLR") — matching the terse "Expected X" style already used by the Rea-FALSE reason. Every other row (any other customer_group, or Rea not exactly "TRUE", or Source Check "TRUE") is unaffected.' },
   { sno:41, col:'Origin (Modern Trade / Avenue Supermarts Ltd)', rule:'ADDED 2026-09-16 — additive origin override gated on BOTH customer_group = Modern Trade AND Customer = Avenue Supermarts Ltd. By Item_Group: Makhana → Origin = Purnea; Desserts → Origin = Kundli; every other Item_Group → Origin = Indore. Runs alongside the other origin overrides (after the Quick Commerce Branch map, before Day is computed). Any row that is not both Modern Trade AND Avenue Supermarts Ltd is unaffected and keeps whatever Origin the rules above it already produced.' },
+  { sno:42, col:'CFA Regions master (Is CFA / Expected Source / CFA Serviceability Check / Order Corrected Remark / Source Check / Priority)', rule:'ADDED 2026-09-21 — the two hardcoded state lists behind Condition 30 (10 north states for CFA GGN, 5 south states for CFA BLR) now live in an editable "CFA Regions" tab in the Masters editor: one row per (CFA, Shipping State). CFA Serviceability (Is CFA, Expected Source, CFA Serviceability Check, Order Corrected Remark, Source Check, and — via Condition 40 — Priority for Quick Commerce) is built directly from this master, so ANY CFA name added there automatically gets recognised by all six columns with no code change. If the master tab is empty it falls back to today\'s exact 15 rows (CFA_REGIONS_SEED), so behaviour is unchanged until edited. Deliberately NOT touched: Origin itself is still only ever literally set to "CFA (GGN)"/"CFA (BLR)" by Conditions 19-20/27 (unchanged) — a new CFA added to this master will show up as CFA-serviceable in the six columns above without being auto-routed there, by design. CFA_CUSTOMER_GROUPS and the "CFA Check" Dump-passthrough column are also untouched.' },
 ];
 
 /* ── CFA SKU master seed (Conditions 20, 27, 29-32) ────────────────────────
@@ -365,6 +366,21 @@ const CFA_SKU_SEED = [
   ['Dates_15-30103','Assorted Pack Farmley 360g Monocarton- Dark Choco Orange Date Bite 120 g, Classic Date Bite 120g, Apple Pie Date Bite 120g Pack of 18 (20 g)'],
 ];
 
+/* ── CFA Regions seed ─────────────────────────────────────────────────────
+   One row per (CFA, Shipping State). This is the STARTING content of the
+   "CFA Regions" table in the Masters tab — once that table exists it is
+   what the run reads, so a future CFA's states (or a whole new CFA) can be
+   added there without touching this file. Today's exact 10 north / 5 south
+   states, unchanged from the previous hardcoded CFA_SHIPPING_STATES /
+   CFA_BLR_STATES. */
+const CFA_REGIONS_SEED = [
+  ['CFA GGN','Uttarakhand'], ['CFA GGN','Uttar Pradesh'], ['CFA GGN','Punjab'],
+  ['CFA GGN','Delhi'], ['CFA GGN','Jammu and Kashmir'], ['CFA GGN','Himachal Pradesh'],
+  ['CFA GGN','Haryana'], ['CFA GGN','Rajasthan'], ['CFA GGN','Ladakh'], ['CFA GGN','Chandigarh'],
+  ['CFA BLR','Telangana'], ['CFA BLR','Andhra Pradesh'], ['CFA BLR','Karnataka'],
+  ['CFA BLR','Tamil Nadu'], ['CFA BLR','Kerala'],
+];
+
 /* ═══════════════════════════════════════════════════════════════════════════
    MASTER DATA STORE
    Five tables parsed once from the Pincode & Rate Master workbook, then kept
@@ -388,6 +404,8 @@ const MASTER_TABLES = [
     cols:['Under (Kg)','Charge'] },
   { key:'cfa',      sheet:'CFA SKU Master',              name:'CFA SKU Master',
     cols:['Item Code','Item Name'], seed: CFA_SKU_SEED },
+  { key:'cfaRegions', sheet:'CFA Regions',                name:'CFA Regions',
+    cols:['CFA','Shipping State'], seed: CFA_REGIONS_SEED },
 ];
 
 /* A table declared with a `seed` starts populated from code when neither the
@@ -942,10 +960,6 @@ async function run() {
 
   /* ── CFA Gurgaon constants ─────────────────────────────────────────── */
   const CFA_CUSTOMER_GROUPS = new Set(['amazon retail india','category a','vending','horeca']);
-  const CFA_SHIPPING_STATES = new Set([
-    'uttarakhand','uttar pradesh','punjab','delhi','jammu and kashmir',
-    'himachal pradesh','haryana','rajasthan','ladakh','chandigarh'
-  ]);
 
   /* ── Common CFA item code list (Conditions 20 & 27) ───────────────
      ONE list of Item_Codes shared by BOTH CFA (GGN) and CFA (BLR).
@@ -957,17 +971,40 @@ async function run() {
        ? masters.cfa.map(r => r['Item Code'])
        : CFA_SKU_SEED.map(a => a[0]))
     .map(nor).filter(Boolean));
-  const CFA_BLR_STATES = new Set([
-    'telangana','andhra pradesh','karnataka','tamil nadu','kerala'
-  ]);
+
+  /* ── CFA Regions (Conditions 19-20, 27, 30) ────────────────────────
+     Read from the editable "CFA Regions" table (Masters tab) — one row
+     per (CFA, Shipping State) — so a future CFA's states, or an entirely
+     new CFA, can be added there without touching this file. Falls back to
+     CFA_REGIONS_SEED (today's exact 10 north / 5 south states) when the
+     master is empty, so behaviour is unchanged until someone edits it. */
+  const cfaRegionRows = (masters && masters.cfaRegions && masters.cfaRegions.length)
+    ? masters.cfaRegions
+    : CFA_REGIONS_SEED.map(a => ({ CFA: a[0], 'Shipping State': a[1] }));
+  const CFA_SHIPPING_STATES = new Set(
+    cfaRegionRows.filter(r => nor(r.CFA) === 'cfa ggn').map(r => nor(r['Shipping State'])).filter(Boolean));
+  const CFA_BLR_STATES = new Set(
+    cfaRegionRows.filter(r => nor(r.CFA) === 'cfa blr').map(r => nor(r['Shipping State'])).filter(Boolean));
 
   /* ── CFA serviceable areas (Condition 30) ──────────────────────────
-     Drives the "CFA Serviceability Check" column. To add a future CFA,
-     append one entry — the column then yields "Yes, <label>". */
-  const CFA_SERVICE_AREAS = [
-    { label: 'CFA GGN', states: CFA_SHIPPING_STATES },
-    { label: 'CFA BLR', states: CFA_BLR_STATES },
-  ];
+     Drives Is CFA / Expected Source / CFA Serviceability Check / Order
+     Corrected Remark / Source Check. Built directly from the CFA Regions
+     master: ANY CFA name that appears there gets its own entry here
+     automatically — adding a future CFA is a Masters-tab row, not a code
+     change. (Origin itself is NOT touched by this — it is still only ever
+     literally set to "CFA (GGN)"/"CFA (BLR)" by Conditions 19-20/27,
+     which are unchanged.) */
+  const cfaLabelsInMaster = Array.from(new Set(cfaRegionRows.map(r => String(r.CFA||'').trim()).filter(Boolean)));
+  const CFA_SERVICE_AREAS = cfaLabelsInMaster.length
+    ? cfaLabelsInMaster.map(label => ({
+        label,
+        states: new Set(cfaRegionRows.filter(r => nor(r.CFA) === nor(label))
+                                      .map(r => nor(r['Shipping State'])).filter(Boolean))
+      }))
+    : [
+        { label: 'CFA GGN', states: CFA_SHIPPING_STATES },
+        { label: 'CFA BLR', states: CFA_BLR_STATES },
+      ];
 
   /* ── CONDITION 28: Quick Commerce Branch → Origin map ──────────────
      For customer_group Quick Commerce ONLY, Origin is taken from the
