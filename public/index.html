@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-09-29.1</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-09-29.2</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -2336,7 +2336,14 @@ function exportToExcel() {
     // Remark (Condition 7): VLOOKUP from Yesterday on CC match
     // Condition 21 override: closed if PendKgs < OriginKgs AND >0 AND (Modern Trade/Quick Commerce) AND Avenue E-Commerce
     const remAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Remark']});
-    ws[remAddr] = { t:'s', f:`IFERROR(VLOOKUP(LOWER(${C('CC')}${r}),Yesterday!A$2:B$${yestRows+1},2,FALSE),"")` };
+    if (outputRows[i]._remarkRaw === 'close') {
+      // CONDITION 43 override: bypass the VLOOKUP entirely and write the
+      // literal text so it matches the preview regardless of what (if
+      // anything) the Yesterday sheet has for this CC.
+      ws[remAddr] = { t:'s', v:'close' };
+    } else {
+      ws[remAddr] = { t:'s', f:`IFERROR(VLOOKUP(LOWER(${C('CC')}${r}),Yesterday!A$2:B$${yestRows+1},2,FALSE),"")` };
+    }
 
     // Rea is a plain computed TRUE/FALSE origin-validation value — no formula.
 
