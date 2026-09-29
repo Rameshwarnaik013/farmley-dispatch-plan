@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-09-21.1</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-09-29.1</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -275,6 +275,7 @@ const CONDITIONS = [
   { sno:40, col:'Priority (Quick Commerce Source Check reason)', rule:'ADDED 2026-09-15, wording REVISED 2026-09-15 — additive, does not change Rea, Source Check, Expected Source, Order Corrected Remark, or Priority\'s existing Rea-FALSE reason text. When customer_group is Quick Commerce AND Rea = "TRUE" (so Priority would otherwise stay blank) AND Source Check = "FALSE", Priority is now filled with "Expected <Order Corrected Remark value>" (e.g. "Expected CFA BLR") — matching the terse "Expected X" style already used by the Rea-FALSE reason. Every other row (any other customer_group, or Rea not exactly "TRUE", or Source Check "TRUE") is unaffected.' },
   { sno:41, col:'Origin (Modern Trade / Avenue Supermarts Ltd)', rule:'ADDED 2026-09-16 — additive origin override gated on BOTH customer_group = Modern Trade AND Customer = Avenue Supermarts Ltd. By Item_Group: Makhana → Origin = Purnea; Desserts → Origin = Kundli; every other Item_Group → Origin = Indore. Runs alongside the other origin overrides (after the Quick Commerce Branch map, before Day is computed). Any row that is not both Modern Trade AND Avenue Supermarts Ltd is unaffected and keeps whatever Origin the rules above it already produced.' },
   { sno:42, col:'CFA Regions master (Is CFA / Expected Source / CFA Serviceability Check / Order Corrected Remark / Source Check / Priority)', rule:'ADDED 2026-09-21 — the two hardcoded state lists behind Condition 30 (10 north states for CFA GGN, 5 south states for CFA BLR) now live in an editable "CFA Regions" tab in the Masters editor: one row per (CFA, Shipping State). CFA Serviceability (Is CFA, Expected Source, CFA Serviceability Check, Order Corrected Remark, Source Check, and — via Condition 40 — Priority for Quick Commerce) is built directly from this master, so ANY CFA name added there automatically gets recognised by all six columns with no code change. If the master tab is empty it falls back to today\'s exact 15 rows (CFA_REGIONS_SEED), so behaviour is unchanged until edited. Deliberately NOT touched: Origin itself is still only ever literally set to "CFA (GGN)"/"CFA (BLR)" by Conditions 19-20/27 (unchanged) — a new CFA added to this master will show up as CFA-serviceable in the six columns above without being auto-routed there, by design. CFA_CUSTOMER_GROUPS and the "CFA Check" Dump-passthrough column are also untouched.' },
+  { sno:43, col:'Remark ("Now" client_type auto-close)', rule:'ADDED 2026-09-29 — additive, applies only to client_type = "Now" rows. If 6 or more calendar days have elapsed between Sales_Order_Date and the real date the plan is being generated (the browser\'s actual clock, NOT the todaySerial value used elsewhere — todaySerial is derived from Dispatch Plan_yesterday\'s last remark and can lag behind), Remark is overridden to the literal text "close". This is sticky: once a row crosses the 6-day threshold it stays "close" on every later run, not just the day it first crosses. Any "Now" row under 6 days old, and every row that is not client_type "Now", is completely unaffected and keeps the existing Remark lookup (Dispatch Plan_yesterday by CC, else blank-fallback) exactly as before. Consequence (unchanged mechanism, just newly reachable here): once Remark is text, "If Dispatched, then EDD" and EDD go blank for that row, same as any other text remark.' },
 ];
 
 /* ── CFA SKU master seed (Conditions 20, 27, 29-32) ────────────────────────
@@ -1107,6 +1108,11 @@ async function run() {
     : Math.round((new Date() - new Date('1899-12-30T00:00:00Z')) / 86400000);
   log(`Today date serial: ${todaySerial} = ${serialToDateStr(todaySerial)}`,'info');
 
+  /* Real calendar date the plan is being generated on — distinct from
+     todaySerial above (which is derived from Yesterday's last remark and
+     can lag behind). Used only by CONDITION 43 (Now client_type auto-close). */
+  const realTodaySerial = Math.round((new Date() - new Date('1899-12-30T00:00:00Z')) / 86400000);
+
   /* ── Detect Dump column names ────────────────────────────────────────── */
   const ds = dump[0] || {};
   const COL = {
@@ -1300,6 +1306,18 @@ async function run() {
     // Default to yesterday's date serial if still blank to ensure dates remain exactly as-is
     if (remarkRaw === '' || remarkRaw === null || remarkRaw === undefined || String(remarkRaw).trim() === '') {
       remarkRaw = maxYestNumericRemark > 0 ? maxYestNumericRemark : todaySerial;
+    }
+
+    /* ── CONDITION 43 (ADDITIVE): "Now" client_type auto-close ──────────
+       For client_type == "Now" rows only: if 6 or more calendar days have
+       elapsed between Sales_Order_Date and the real date the plan is being
+       generated (not todaySerial, which can lag), Remark is overridden to
+       the literal text "close" — sticky, so it stays "close" on every
+       later run too, not just the day the threshold is first crossed.
+       Every other row, and "Now" rows under 6 days old, are unaffected —
+       they keep the Remark logic above exactly as it was. */
+    if (isNow && soDateSerial && (realTodaySerial - soDateSerial) >= 6) {
+      remarkRaw = 'close';
     }
 
     /* ── CONDITION 26 (REVISED): Rea = origin validation (TRUE/FALSE) ──
