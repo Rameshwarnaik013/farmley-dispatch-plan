@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-09-29.2</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-10-09.1</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -276,6 +276,7 @@ const CONDITIONS = [
   { sno:41, col:'Origin (Modern Trade / Avenue Supermarts Ltd)', rule:'ADDED 2026-09-16 — additive origin override gated on BOTH customer_group = Modern Trade AND Customer = Avenue Supermarts Ltd. By Item_Group: Makhana → Origin = Purnea; Desserts → Origin = Kundli; every other Item_Group → Origin = Indore. Runs alongside the other origin overrides (after the Quick Commerce Branch map, before Day is computed). Any row that is not both Modern Trade AND Avenue Supermarts Ltd is unaffected and keeps whatever Origin the rules above it already produced.' },
   { sno:42, col:'CFA Regions master (Is CFA / Expected Source / CFA Serviceability Check / Order Corrected Remark / Source Check / Priority)', rule:'ADDED 2026-09-21 — the two hardcoded state lists behind Condition 30 (10 north states for CFA GGN, 5 south states for CFA BLR) now live in an editable "CFA Regions" tab in the Masters editor: one row per (CFA, Shipping State). CFA Serviceability (Is CFA, Expected Source, CFA Serviceability Check, Order Corrected Remark, Source Check, and — via Condition 40 — Priority for Quick Commerce) is built directly from this master, so ANY CFA name added there automatically gets recognised by all six columns with no code change. If the master tab is empty it falls back to today\'s exact 15 rows (CFA_REGIONS_SEED), so behaviour is unchanged until edited. Deliberately NOT touched: Origin itself is still only ever literally set to "CFA (GGN)"/"CFA (BLR)" by Conditions 19-20/27 (unchanged) — a new CFA added to this master will show up as CFA-serviceable in the six columns above without being auto-routed there, by design. CFA_CUSTOMER_GROUPS and the "CFA Check" Dump-passthrough column are also untouched.' },
   { sno:43, col:'Remark ("Now" client_type auto-close)', rule:'ADDED 2026-09-29 — additive, applies only to client_type = "Now" rows. If 6 or more calendar days have elapsed between Sales_Order_Date and the real date the plan is being generated (the browser\'s actual clock, NOT the todaySerial value used elsewhere — todaySerial is derived from Dispatch Plan_yesterday\'s last remark and can lag behind), Remark is overridden to the literal text "close". This is sticky: once a row crosses the 6-day threshold it stays "close" on every later run, not just the day it first crosses. Any "Now" row under 6 days old, and every row that is not client_type "Now", is completely unaffected and keeps the existing Remark lookup (Dispatch Plan_yesterday by CC, else blank-fallback) exactly as before. Consequence (unchanged mechanism, just newly reachable here): once Remark is text, "If Dispatched, then EDD" and EDD go blank for that row, same as any other text remark.' },
+  { sno:44, col:'Moq validation',          rule:'ADDED 2026-10-09 — new LAST column of the exported main sheet, all customers. "MOQ" when Item_Group = Munchies AND Origin Kgs < 15, else blank. Origin Kgs is the value shown in that column (Dump Origin Kgs, or Pending Kgs when blank; blank or text counts as 0). Remark and every other column are unaffected. Also on 2026-10-09: charge weight, Boxes*charge weight, Lowest 1, Lowest Score 1, Lowest 2 and Lowest Score 2 were dropped from the exported main sheet — they stay in the preview and the Freight Comparison sheet.' },
 ];
 
 /* ── CFA SKU master seed (Conditions 20, 27, 29-32) ────────────────────────
@@ -1544,6 +1545,11 @@ async function run() {
       'Lowest 2': '',
       'Lowest Score 2': '',
     });
+    /* CONDITION 44: Moq validation — all customers. Item_Group = Munchies AND the
+       exported Origin Kgs value (blank → Pending Kgs → 0) < 15 → "MOQ". */
+    const out = result[result.length - 1];
+    out['Moq validation'] = (nor(out.Item_Group) === 'munchies'
+      && (parseFloat(out['Origin Kgs']) || 0) < 15) ? 'MOQ' : '';
   });
 
   outputRows = result;
@@ -1786,6 +1792,7 @@ function runFreight(rows) {
 
     const fr = { 'Group Key':g.key, 'SO No':g.so, Customer:g.customer, Pincode:g.pincode, Origin:g.origin,
                  'Charge weight': g.cwSeen ? Math.round(g.cw*1000)/1000 : '',
+                 _cwRaw: g.cwSeen ? g.cw : '',
                  'Invoice value': r2(g.inv),
                  'Appointment Applicable': APPT[nor(g.customer)] === undefined ? 'Not in master' : (apptApplicable?'Yes':'No') };
     for (let i=0; i<5; i++) {
@@ -1816,7 +1823,8 @@ const PREVIEW_COLS = [
   'Final Dispatch Status','Dispatch_Status','If Dispatched, then EDD','EDD',
   'Pending Kgs','Origin','Group Key','Shipping State','Day','Customer','Item_Code','Branch',
   'Rea','Is CFA','Expected Source','CFA Serviceability Check','Order Corrected Remark',
-  'Source Check','charge weight','Lowest 1','Lowest Score 1','Lowest 2','Lowest Score 2'
+  'Source Check','charge weight','Lowest 1','Lowest Score 1','Lowest 2','Lowest Score 2',
+  'Moq validation'
 ];
 
 function renderTable(rows) {
@@ -1857,8 +1865,11 @@ const EXPORT_COLS = [
   'owner','Workflow_State','purpose','Sales_Order_Status','Delivery_Date','Multi GRN',
   'Merge','CFA Check','Is CFA','Expected Source','CFA Serviceability Check',
   'Order Corrected Remark','Source Check',
-  'Group Key','charge weight','Boxes*charge weight',
-  'Lowest 1','Lowest Score 1','Lowest 2','Lowest Score 2'
+  // charge weight, Boxes*charge weight, Lowest 1/2 and their scores were removed from the
+  // exported main sheet on 2026-10-09 (still in the preview and the Freight Comparison sheet).
+  // Group Key stays: the Freight Comparison sheet's Invoice value SUMIFs over it.
+  'Group Key',
+  'Moq validation'
 ];
 
 const DATE_COLS = new Set(['Sales_Order_Date','po_expiry_date','Appt','Remark','If Dispatched, then EDD','Delivery_Date','DATE(tso.sales_order_confirmation_date)']);
@@ -2289,7 +2300,7 @@ function exportToExcel() {
   /* ── Build main sheet with formulas ────────────────────────────────── */
   // First row: write raw values for non-formula columns, placeholders for formula columns
   const FORMULA_COLS = new Set(['CC','Day','Appt','Remark','If Dispatched, then EDD','EDD','Merge','Dispatch_Status','Final Dispatch Status',
-    'Group Key','charge weight','Boxes*charge weight','Lowest 1','Lowest Score 1','Lowest 2','Lowest Score 2']);
+    'Group Key','Moq validation']);
 
   const exportData = outputRows.map(row => {
     const obj = {};
@@ -2379,35 +2390,10 @@ function exportToExcel() {
     const gkAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Group Key']});
     ws[gkAddr] = { t:'s', f:`${C('Sales_Order_No')}${r}&IF(${canonOriginExpr(C('Origin')+r)}="indore","|Indore",IF(${canonOriginExpr(C('Origin')+r)}="purnia","|Purnea",""))` };
 
-    // charge weight (Condition 34): VLOOKUP into SKU Master by Item_Code, preferring the
-    // row whose Locations matches the Origin (Indore/Purnia/UD Foods/Tamil Nadu), else the
-    // first row for that Item_Code; the column read depends on Origin (Indore -> Indore,
-    // Purnea -> Purnia, everything else -> Final Charge weight) — mirrors chargeWeightFor().
-    const wantLoc = `IF(${C('Origin')}${r}="Indore","Indore",IF(${C('Origin')}${r}="Purnea","Purnia",IF(${C('Origin')}${r}="UD Foods","UD Foods",IF(${C('Origin')}${r}="Rebela","Tamil Nadu",""))))`;
-    const cwColA = `IF(${C('Origin')}${r}="Indore",5,IF(${C('Origin')}${r}="Purnea",6,4))`;   // within SKU Master!A:F
-    const cwColB = `IF(${C('Origin')}${r}="Indore",4,IF(${C('Origin')}${r}="Purnea",5,3))`;   // within SKU Master!B:F (fallback, no Locations match)
-    const cwAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['charge weight']});
-    ws[cwAddr] = { t:'n', f:`IFERROR(VLOOKUP(${C('Item_Code')}${r}&"|"&${wantLoc},'SKU Master'!$A:$F,${cwColA},FALSE),IFERROR(VLOOKUP(${C('Item_Code')}${r},'SKU Master'!$B:$F,${cwColB},FALSE),""))` };
-
-    // Boxes*charge weight (Condition 35) — blank, not 0, when charge weight is blank OR
-    // not a number at all (the SKU master occasionally has a stray typo — e.g. "fv" where
-    // a weight should be — in a raw source column outside this app's control; VLOOKUP
-    // faithfully returns whatever is there). NOT(ISNUMBER(...)) catches both cases instead
-    // of only an exact blank, so one bad master row degrades to blank for that row only —
-    // matching what the live app already does (chargeWt*boxes -> NaN, silently filtered at
-    // aggregation) — rather than throwing #VALUE! and poisoning the whole SO's SUMIF/COUNTIFS
-    // on the Freight Comparison sheet downstream.
-    const bcwAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Boxes*charge weight']});
-    ws[bcwAddr] = { t:'n', f:`IF(OR(NOT(ISNUMBER(${C('charge weight')}${r})),NOT(ISNUMBER(${C('Boxes')}${r}))),"",${C('charge weight')}${r}*${C('Boxes')}${r})` };
-
-    // Lowest 1/2 + their scores (Conditions 36-38): looked up from the Freight Comparison
-    // sheet by GROUP KEY, not bare Sales_Order_No — so an Indore row and a UD Foods row
-    // on the same SO correctly land on their own separate freight quotes.
-    ['Lowest 1','Lowest Score 1','Lowest 2','Lowest Score 2'].forEach(col => {
-      const addr = XLSX.utils.encode_cell({r:r-1, c:colIdx[col]});
-      ws[addr] = { t: col.indexOf('Score') >= 0 ? 'n' : 's',
-        f:`IFERROR(VLOOKUP(${C('Group Key')}${r},'Freight Comparison'!$A:$${FC('Saving')},${fIdx[col]+1},FALSE),"")` };
-    });
+    // Moq validation (Condition 44): Item_Group = Munchies AND Origin Kgs < 15 -> "MOQ".
+    // N() turns a blank/text Origin Kgs into 0, matching parseFloat(...)||0 in run().
+    const moqAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Moq validation']});
+    ws[moqAddr] = { t:'s', f:`IF(AND(LOWER(TRIM(${C('Item_Group')}${r}))="munchies",N(${C('Origin Kgs')}${r})<15),"MOQ","")` };
   }
 
   /* ── Apply number formats to date and numeric columns ──────────────── */
@@ -2495,25 +2481,16 @@ function exportToExcel() {
     wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Pincode']})] = { t:'n', v: parseFloat(fr.Pincode)||0 };
     wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Origin']})] = { t:'s', v: fr.Origin||'' };
 
-    // Charge weight / Invoice value: SUMIF over the main sheet, grouped by this SO.
-    // Charge weight is blank, not 0, when NO row for this SO has a numeric
-    // Boxes*charge weight (every Item_Code missing from the SKU master) — SUMIF
-    // alone can't tell "summed to zero" from "nothing to sum", so COUNTIFS with
-    // a numeric ">=0" criterion (which only ever matches numbers, never the
-    // text "") gates it, mirroring runFreight()'s cwSeen flag exactly.
-    // Deliberately NOT rounded: runFreight() feeds the RAW unrounded g.cw/g.inv
-    // into quote() for every partner's Basic/FOV math and rounds only the
-    // separate DISPLAY value afterward — rounding this cell would feed a
-    // rounded number into the Basic/FOV formulas below (which reference it
-    // directly) where JS uses the raw one, drifting every downstream total
-    // by a fraction of a rupee. A confirmed, tested regression — do not add
-    // ROUND() here without also splitting display from computation.
-    // Criteria range is the main sheet's Group Key column, NOT Sales_Order_No — a
-    // multi-origin SO has more than one Freight Comparison row (one per origin
-    // bucket), so matching on bare SO number would sum every origin's rows into
-    // each of that SO's groups. $A{r} here is this row's OWN Group Key (column A).
+    // Charge weight: since 2026-10-09 the main sheet no longer carries Boxes*charge
+    // weight, so this is runFreight()'s RAW group total written as a value — blank when
+    // no row in the group had a charge weight (cwSeen). Deliberately NOT the rounded
+    // display number: the partner Basic/FOV formulas below compute from this cell, and
+    // a rounded input was a confirmed, tested regression.
+    // Invoice value: SUMIF over the main sheet's Group Key column (NOT Sales_Order_No —
+    // a multi-origin SO has one Freight Comparison row per origin bucket). $A{r} is
+    // this row's own Group Key.
     wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Charge weight']})] =
-      { t:'n', f:`IF(COUNTIFS('Dispatch plan_Today'!$${C('Group Key')}:$${C('Group Key')},$A${r},'Dispatch plan_Today'!$${C('Boxes*charge weight')}:$${C('Boxes*charge weight')},">=0")=0,"",SUMIF('Dispatch plan_Today'!$${C('Group Key')}:$${C('Group Key')},$A${r},'Dispatch plan_Today'!$${C('Boxes*charge weight')}:$${C('Boxes*charge weight')}))` };
+      fr._cwRaw === '' ? { t:'s', v:'' } : { t:'n', v: fr._cwRaw };
     wsF[XLSX.utils.encode_cell({r:r-1,c:fIdx['Invoice value']})] =
       { t:'n', f:`SUMIF('Dispatch plan_Today'!$${C('Group Key')}:$${C('Group Key')},$A${r},'Dispatch plan_Today'!$${C('Final Amount')}:$${C('Final Amount')})` };
 
