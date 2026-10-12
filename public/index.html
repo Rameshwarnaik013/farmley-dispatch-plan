@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-10-09.1</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-10-12.1</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -275,7 +275,7 @@ const CONDITIONS = [
   { sno:40, col:'Priority (Quick Commerce Source Check reason)', rule:'ADDED 2026-09-15, wording REVISED 2026-09-15 — additive, does not change Rea, Source Check, Expected Source, Order Corrected Remark, or Priority\'s existing Rea-FALSE reason text. When customer_group is Quick Commerce AND Rea = "TRUE" (so Priority would otherwise stay blank) AND Source Check = "FALSE", Priority is now filled with "Expected <Order Corrected Remark value>" (e.g. "Expected CFA BLR") — matching the terse "Expected X" style already used by the Rea-FALSE reason. Every other row (any other customer_group, or Rea not exactly "TRUE", or Source Check "TRUE") is unaffected.' },
   { sno:41, col:'Origin (Modern Trade / Avenue Supermarts Ltd)', rule:'ADDED 2026-09-16 — additive origin override gated on BOTH customer_group = Modern Trade AND Customer = Avenue Supermarts Ltd. By Item_Group: Makhana → Origin = Purnea; Desserts → Origin = Kundli; every other Item_Group → Origin = Indore. Runs alongside the other origin overrides (after the Quick Commerce Branch map, before Day is computed). Any row that is not both Modern Trade AND Avenue Supermarts Ltd is unaffected and keeps whatever Origin the rules above it already produced.' },
   { sno:42, col:'CFA Regions master (Is CFA / Expected Source / CFA Serviceability Check / Order Corrected Remark / Source Check / Priority)', rule:'ADDED 2026-09-21 — the two hardcoded state lists behind Condition 30 (10 north states for CFA GGN, 5 south states for CFA BLR) now live in an editable "CFA Regions" tab in the Masters editor: one row per (CFA, Shipping State). CFA Serviceability (Is CFA, Expected Source, CFA Serviceability Check, Order Corrected Remark, Source Check, and — via Condition 40 — Priority for Quick Commerce) is built directly from this master, so ANY CFA name added there automatically gets recognised by all six columns with no code change. If the master tab is empty it falls back to today\'s exact 15 rows (CFA_REGIONS_SEED), so behaviour is unchanged until edited. Deliberately NOT touched: Origin itself is still only ever literally set to "CFA (GGN)"/"CFA (BLR)" by Conditions 19-20/27 (unchanged) — a new CFA added to this master will show up as CFA-serviceable in the six columns above without being auto-routed there, by design. CFA_CUSTOMER_GROUPS and the "CFA Check" Dump-passthrough column are also untouched.' },
-  { sno:43, col:'Remark ("Now" client_type auto-close)', rule:'ADDED 2026-09-29 — additive, applies only to client_type = "Now" rows. If 6 or more calendar days have elapsed between Sales_Order_Date and the real date the plan is being generated (the browser\'s actual clock, NOT the todaySerial value used elsewhere — todaySerial is derived from Dispatch Plan_yesterday\'s last remark and can lag behind), Remark is overridden to the literal text "close". This is sticky: once a row crosses the 6-day threshold it stays "close" on every later run, not just the day it first crosses. Any "Now" row under 6 days old, and every row that is not client_type "Now", is completely unaffected and keeps the existing Remark lookup (Dispatch Plan_yesterday by CC, else blank-fallback) exactly as before. Consequence (unchanged mechanism, just newly reachable here): once Remark is text, "If Dispatched, then EDD" and EDD go blank for that row, same as any other text remark.' },
+  { sno:43, col:'Remark ("Now" client_type auto-close)', rule:'CANCELLED 2026-10-12 — it replaced the yesterday remark with "close" for "Now" SOs 6+ days old. Remark is now always fetched from Dispatch Plan_yesterday by CC exactly as-is (dates, text, anything), and left BLANK when yesterday has no remark for that CC — in both the preview and the exported file.' },
   { sno:44, col:'Moq validation',          rule:'ADDED 2026-10-09 — new LAST column of the exported main sheet, all customers. "MOQ" when Item_Group = Munchies AND Origin Kgs < 15, else blank. Origin Kgs is the value shown in that column (Dump Origin Kgs, or Pending Kgs when blank; blank or text counts as 0). Remark and every other column are unaffected. Also on 2026-10-09: charge weight, Boxes*charge weight, Lowest 1, Lowest Score 1, Lowest 2 and Lowest Score 2 were dropped from the exported main sheet — they stay in the preview and the Freight Comparison sheet.' },
 ];
 
@@ -1109,10 +1109,6 @@ async function run() {
     : Math.round((new Date() - new Date('1899-12-30T00:00:00Z')) / 86400000);
   log(`Today date serial: ${todaySerial} = ${serialToDateStr(todaySerial)}`,'info');
 
-  /* Real calendar date the plan is being generated on — distinct from
-     todaySerial above (which is derived from Yesterday's last remark and
-     can lag behind). Used only by CONDITION 43 (Now client_type auto-close). */
-  const realTodaySerial = Math.round((new Date() - new Date('1899-12-30T00:00:00Z')) / 86400000);
 
   /* ── Detect Dump column names ────────────────────────────────────────── */
   const ds = dump[0] || {};
@@ -1299,27 +1295,19 @@ async function run() {
     // Search aggressively across all possible representations to guarantee a hit
     const ysRemark = yesterMap[nor(cc)]
       ?? yesterMap[nor(row['DF:CC'])]
-      ?? yesterMap[nor(row['CC'])]
-      ?? yesterMap[nor(soNo)];
+      ?? yesterMap[nor(row['CC'])];
+    // (SO-number-only fallback removed 2026-10-12: it pulled another line's remark,
+    //  which the exported file's CC VLOOKUP never did.)
 
     let remarkRaw = (ysRemark !== undefined) ? ysRemark : '';
 
-    // Default to yesterday's date serial if still blank to ensure dates remain exactly as-is
-    if (remarkRaw === '' || remarkRaw === null || remarkRaw === undefined || String(remarkRaw).trim() === '') {
-      remarkRaw = maxYestNumericRemark > 0 ? maxYestNumericRemark : todaySerial;
-    }
+    // No remark yesterday -> blank (2026-10-12; was: yesterday's latest date / today),
+    // matching the export's VLOOKUP, which returns "" when the CC is not found.
+    if (remarkRaw === null || remarkRaw === undefined || String(remarkRaw).trim() === '') remarkRaw = '';
 
-    /* ── CONDITION 43 (ADDITIVE): "Now" client_type auto-close ──────────
-       For client_type == "Now" rows only: if 6 or more calendar days have
-       elapsed between Sales_Order_Date and the real date the plan is being
-       generated (not todaySerial, which can lag), Remark is overridden to
-       the literal text "close" — sticky, so it stays "close" on every
-       later run too, not just the day the threshold is first crossed.
-       Every other row, and "Now" rows under 6 days old, are unaffected —
-       they keep the Remark logic above exactly as it was. */
-    if (isNow && soDateSerial && (realTodaySerial - soDateSerial) >= 6) {
-      remarkRaw = 'close';
-    }
+    /* CONDITION 43 ("Now" auto-close after 6 days) CANCELLED 2026-10-12 — it overwrote
+       yesterday's remark (dates, RM Issue, Discontinue...) with "close". Remark is now
+       always yesterday's remark as-is, blank when there is none. */
 
     /* ── CONDITION 26 (REVISED): Rea = origin validation (TRUE/FALSE) ──
        Expected Origin: item_parent map first (Munchies Waves→Rebela,
@@ -2347,14 +2335,7 @@ function exportToExcel() {
     // Remark (Condition 7): VLOOKUP from Yesterday on CC match
     // Condition 21 override: closed if PendKgs < OriginKgs AND >0 AND (Modern Trade/Quick Commerce) AND Avenue E-Commerce
     const remAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Remark']});
-    if (outputRows[i]._remarkRaw === 'close') {
-      // CONDITION 43 override: bypass the VLOOKUP entirely and write the
-      // literal text so it matches the preview regardless of what (if
-      // anything) the Yesterday sheet has for this CC.
-      ws[remAddr] = { t:'s', v:'close' };
-    } else {
-      ws[remAddr] = { t:'s', f:`IFERROR(VLOOKUP(LOWER(${C('CC')}${r}),Yesterday!A$2:B$${yestRows+1},2,FALSE),"")` };
-    }
+    ws[remAddr] = { t:'s', f:`IFERROR(VLOOKUP(LOWER(${C('CC')}${r}),Yesterday!A$2:B$${yestRows+1},2,FALSE),"")` };
 
     // Rea is a plain computed TRUE/FALSE origin-validation value — no formula.
 
