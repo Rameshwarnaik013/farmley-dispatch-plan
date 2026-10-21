@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-10-12.1</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-10-21.1</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -275,7 +275,7 @@ const CONDITIONS = [
   { sno:40, col:'Priority (Quick Commerce Source Check reason)', rule:'ADDED 2026-09-15, wording REVISED 2026-09-15 — additive, does not change Rea, Source Check, Expected Source, Order Corrected Remark, or Priority\'s existing Rea-FALSE reason text. When customer_group is Quick Commerce AND Rea = "TRUE" (so Priority would otherwise stay blank) AND Source Check = "FALSE", Priority is now filled with "Expected <Order Corrected Remark value>" (e.g. "Expected CFA BLR") — matching the terse "Expected X" style already used by the Rea-FALSE reason. Every other row (any other customer_group, or Rea not exactly "TRUE", or Source Check "TRUE") is unaffected.' },
   { sno:41, col:'Origin (Modern Trade / Avenue Supermarts Ltd)', rule:'ADDED 2026-09-16 — additive origin override gated on BOTH customer_group = Modern Trade AND Customer = Avenue Supermarts Ltd. By Item_Group: Makhana → Origin = Purnea; Desserts → Origin = Kundli; every other Item_Group → Origin = Indore. Runs alongside the other origin overrides (after the Quick Commerce Branch map, before Day is computed). Any row that is not both Modern Trade AND Avenue Supermarts Ltd is unaffected and keeps whatever Origin the rules above it already produced.' },
   { sno:42, col:'CFA Regions master (Is CFA / Expected Source / CFA Serviceability Check / Order Corrected Remark / Source Check / Priority)', rule:'ADDED 2026-09-21 — the two hardcoded state lists behind Condition 30 (10 north states for CFA GGN, 5 south states for CFA BLR) now live in an editable "CFA Regions" tab in the Masters editor: one row per (CFA, Shipping State). CFA Serviceability (Is CFA, Expected Source, CFA Serviceability Check, Order Corrected Remark, Source Check, and — via Condition 40 — Priority for Quick Commerce) is built directly from this master, so ANY CFA name added there automatically gets recognised by all six columns with no code change. If the master tab is empty it falls back to today\'s exact 15 rows (CFA_REGIONS_SEED), so behaviour is unchanged until edited. Deliberately NOT touched: Origin itself is still only ever literally set to "CFA (GGN)"/"CFA (BLR)" by Conditions 19-20/27 (unchanged) — a new CFA added to this master will show up as CFA-serviceable in the six columns above without being auto-routed there, by design. CFA_CUSTOMER_GROUPS and the "CFA Check" Dump-passthrough column are also untouched.' },
-  { sno:43, col:'Remark ("Now" client_type auto-close)', rule:'CANCELLED 2026-10-12 — it replaced the yesterday remark with "close" for "Now" SOs 6+ days old. Remark is now always fetched from Dispatch Plan_yesterday by CC exactly as-is (dates, text, anything), and left BLANK when yesterday has no remark for that CC — in both the preview and the exported file.' },
+  { sno:43, col:'Remark ("Now" client_type auto-close)', rule:'REVISED 2026-10-21. Remark is always fetched from Dispatch Plan_yesterday by CC exactly as-is (dates, text, anything) and that remark always wins. Only when yesterday has NO remark for the CC: if client_type is "Now" and the Sales_Order_Date is 10 or more days before the real date of the run, Remark = "close"; otherwise Remark is blank. History: until 2026-10-12 this was 6 days and overwrote the yesterday remark; it was cancelled on 2026-10-12 and brought back at 10 days on 2026-10-21.' },
   { sno:44, col:'Moq validation',          rule:'ADDED 2026-10-09 — new LAST column of the exported main sheet, all customers. "MOQ" when Item_Group = Munchies AND Origin Kgs < 15, else blank. Origin Kgs is the value shown in that column (Dump Origin Kgs, or Pending Kgs when blank; blank or text counts as 0). Remark and every other column are unaffected. Also on 2026-10-09: charge weight, Boxes*charge weight, Lowest 1, Lowest Score 1, Lowest 2 and Lowest Score 2 were dropped from the exported main sheet — they stay in the preview and the Freight Comparison sheet.' },
 ];
 
@@ -286,14 +286,14 @@ const CONDITIONS = [
    browser (or in an uploaded master workbook) it is what the run reads, so
    codes can be added or removed there without touching this file. Matching
    is on Item Code; Item Name is descriptive only.
-   Two codes have no row in the SKU charge-weight master, so their names are
-   blank here and can be filled in from the Masters tab. */
+   Replaced 2026-10-21 with Sheet1 of the user's "cfa item.xlsx" (82 codes;
+   Seeds_11-2932 was listed twice and is kept once). */
 const CFA_SKU_SEED = [
   ['Dates_04-30057','Apple Pie Date Bite Farmley Tin Jar 200g'],
   ['Dates_15-30109','Classic Date Bites Farmley Sachet 20 g - Single Serve'],
   ['Dates_15-30110','Dark Choco Orange Date Bites Farmley Sachet 20 g - Single Serve'],
   ['Dates_15-30111','Apple Pie Date Bite Farmley sachet 20 g - Single serve'],
-  ['Dates_4-20183',''],
+  ['Dates_4-20183','Assorted Pack Farmley 60g- Dark Choco Orange Date Bite 20g, Coffee Date Bite 20g, Classic Date Bite 20g'],
   ['Dates_4-20161','Coffee Rush Date Bite Farmley Sachet 20g- Single Serve'],
   ['Dates_4-20162','Coffee Rush Date Bite Farmley Tin Jar 200g'],
   ['Dates_4-30101','Dark Choco-Orange Date Bite Farmley Tin Jar 200g'],
@@ -302,15 +302,14 @@ const CFA_SKU_SEED = [
   ['Dry Fruit Mix_15-2403','Seed Mix Farmley Standee Pouch 200 g'],
   ['Dry Fruit Mix_15-2404','Berry Mix Farmley Standee Pouch 200 g'],
   ['Dry Fruit Mix_15-2800','Premium Panchmeva Farmley Jar 425 g- Institutional'],
-  ['Dry Fruit Mix_15-2801','Premium Panchmeva Farmley Jar 405g'],
-  ['Dry Fruit Mix_15-2856','Premium Panchmeva Farmley Pillow Pouch 21g (In SRP 8 Pcs Each)'],
-  ['Dry Fruit Mix_15-2858','Party Mix Farmley Pillow Pouch 21g (In SRP 8 Pcs Each)'],
-  ['Dry Fruit Mix_15-2950','Premium Panchmeva Farmley Pillow Pouch 21 g - Pack of 10 (Ladi)'],
+  ['Dry Fruit Mix_15-2801','Premium Panchmeva Farmley Jar 405 g'],
+  ['Dry Fruit Mix_15-2858','Mexican Peri Peri Snack Mix Farmley Pillow Pouch 21g (In SRP 8 Pcs Each)'],
+  ['Dry Fruit Mix_15-2880','Premium Panchmeva Farmley Standee Pouch 160g'],
   ['Dry Fruit Mix_15-2951','Mexican Peri Peri Snack Mix Farmley 21g - Pack of 10 (Ladi)'],
+  ['Dry Fruit Mix_15-30141','Sweet and Salty Mix Farmley Pillow Pouch 23g- Ladi (Pack of 10)'],
   ['Dry Fruit Mix_15-30155','Premium Panchmeva Farmley Pillow Pouch 30g- single serve'],
   ['Dry Fruit Mix_15-30158','Mexican Peri-Peri Snack Mix Farmley Pillow Pouch 35 g- Single Serve'],
   ['Dry Fruit Mix_15-30159','Mexican Peri Peri Snack Mix Farmley Composite Jar 325 g'],
-  ['Dry Fruit Mix_15-30160','Trail Mix Farmley Composite Jar 325 g'],
   ['Makhana_7-2979','Roasted & Flavored Makhana -Cheddar Cheese Farmley Composite Jar 77 g'],
   ['Makhana_7-2980','Roasted & Flavored Makhana - Mint Farmley Composite Jar 77 g'],
   ['Makhana_7-2981','Roasted & Flavored Makhana - Black Pepper Farmley Composite jar 77 g'],
@@ -327,13 +326,13 @@ const CFA_SKU_SEED = [
   ['Makhana_7-2997','Roasted & Flavoured Achaari Makhana Farmley Jar 55 g'],
   ['Makhana_7-2998','Roasted & Flavoured Cheddar Cheese Makhana Farmley Jar 55 g'],
   ['Makhana_7-2999','Roasted & Flavoured Salt & Pepper Makhana Farmley Jar 55 g'],
-  ['Makhana_7-30073','Roasted & Flavoured Makhana - Peri Peri Farmley Pillow Pouch 14g-Ladi'],
+  ['Makhana_7-30073','Roasted & Flavored Makhana - Peri Peri Farmley Pillow Pouch 14 g-Ladi'],
   ['Makhana_7-30074','Roasted & Flavoured Makhana - Cream & Onion Farmley Pillow Pouch 14g-Ladi'],
   ['Makhana_7-30075','Roasted & Flavoured Makhana - Tangy Tomato Farmley Pillow Pouch 14g-Ladi'],
   ['Makhana_7-30079','Roasted & Flavoured Makhana - Achaari Farmley Pillow Pouch 14g-Ladi'],
-  ['Makhana_7-30096','Prasadam Makhana Center Seal Pouch 100 g-NEW'],
+  ['Makhana_7-30096','Prasadam Makhana Center Seal Pouch 100 g- NEW'],
   ['Makhana_7-30097','Prasadam Makhana Farmley Center Seal Pouch 60g-New'],
-  ['Makhana_7-30098','Prasadam Makhana Center Seal Pouch 200 g-NEW'],
+  ['Makhana_7-30098','Prasadam Makhana Center Seal Pouch 200 g- NEW'],
   ['Makhana_7-30135','Roasted & Flavoured Makhana - Lemon Chilli Farmley Composite Jar 55g'],
   ['Makhana_7-30136','Roasted & Flavoured Makhana - Lemon Chilli Farmley Composite Jar 77 g'],
   ['Makhana_7-30140','Prasadam Makhana Farmley Center Seal Pouch 180 g'],
@@ -346,7 +345,6 @@ const CFA_SKU_SEED = [
   ['Makhana_7-30154','Roasted & Flavored Makhana - Achaari Farmley Pillow Pouch 20 g'],
   ['Makhana_7-30155','Roasted & Salted Makhana Farmley Pillow Pouch 20 g'],
   ['Seeds_11-20155','Premium Watermelon Seeds Farmley Standee Pouch 100 gms'],
-  ['Seeds_11-20160','Roasted & Salted Pumpkin seeds Pillow Pouch Farmley 24 g- single serve'],
   ['Seeds_11-20161','Chia seeds Farmley Standee Pouch 250 g'],
   ['Seeds_11-20162','Sunflower seeds Farmley Standee Pouch 250 g'],
   ['Seeds_11-20163','Pumpkin seeds Farmley Standee Pouch 250 g'],
@@ -355,17 +353,24 @@ const CFA_SKU_SEED = [
   ['Seeds_11-2549','Premium Sunflower Seeds Farmley Standee Pouch 200 g'],
   ['Seeds_11-2550','Premium Flax Seeds Farmley Standee Pouch 200 g'],
   ['Seeds_11-2868','Quinoa seeds Farmley Standee Pouch 500g'],
-  ['Seeds_11-2932','Basil Seeds Farmley Standee pouch 300g'],
+  ['Seeds_11-2932','Quinoa seeds Farmley Standee Pouch 500g'],
   ['Seeds_11-30135','Salted Pumpkin Seeds Pillow Pouch Farmley 24 g (In SRP 8 Pcs Each)'],
-  ['Seeds_11-30142','Salted Pumpkin seeds Pillow Pouch Farmley 24 g-Ladi'],
-  ['Makhana_7-30190',''],
+  ['Seeds_11-30142','Salted Pumpkin Seeds Pillow Pouch Farmley 24g-Ladi'],
+  ['Makhana_7-30190','Roasted & Flavoured Makhana - Black Salt Farmley Composite Jar 55g'],
   ['Dates_4-2566','Classic Date Bites Farmley Monocarton 240 g - Pack of 12 (20 g Each)'],
-  ['Dates_4-30106','Dark Choco Orange Date Bites Farmley Sachet 20 g'],
-  ['Dates_04-30567','Apple Pie Date Bite Farmley Sachet 20 g'],
+  ['Dates_4-30106','Dark Choco-Orange Date Bites Monocarton 240 g - Pack of 12 (20 g Each)'],
+  ['Dates_04-30567','Apple Pie Date Bites Farmley Monocarton 240 g - Pack of 12 (20 g Each)'],
   ['Dates_4-20171','Coffee Rush Date Bite Farmley Mono Carton Farmley 240 g - Pack of 12 (20 g Each)'],
   ['Dry Fruit Mix_15-30179','Premium Panchmeva Farmley Pillow Pouch 20 g - Pack of 10 (Ladi)'],
   ['Dry Fruit Mix_15-30180','Premium Panchmeva Farmley Pillow Pouch 20g (In SRP 8 Pcs Each)'],
-  ['Dates_15-30103','Assorted Pack Farmley 360g Monocarton- Dark Choco Orange Date Bite 120 g, Classic Date Bite 120g, Apple Pie Date Bite 120g Pack of 18 (20 g)'],
+  ['Dates_4-20192','Assorted Pack Farmley 360g Monocarton- Dark Choco Orange Date Bite 120 g, Classic Date Bite 120g, Apple Pie Date Bite 120g Pack of 18 (20 g)'],
+  ['Seeds_11-20179','Roasted & Salted Pumpkin seeds Pillow Pouch Farmley 35 g'],
+  ['Dry Fruit Mix_15-30193','Premium Panchmeva Farmley (irctc)- 35g'],
+  ['Makhana_7-30191','Roasted & Salted Makhana - 15g'],
+  ['Makhana_7-30224','Roasted & Flavoured Makhana - Achaari Farmley Pillow Pouch 12g - Ladi'],
+  ['Makhana_7-30219','Roasted & Flavoured Makhana - Cream & Onion Farmley Pillow Pouch 12g - Ladi'],
+  ['Makhana_7-30218','Roasted & Flavoured Makhana - Peri Peri Farmley Pillow Pouch 12g - Ladi'],
+  ['Makhana_7-30220','Roasted & Flavoured Makhana - Tangy Tomato Farmley Pillow Pouch 12g - Ladi'],
 ];
 
 /* ── CFA Regions seed ─────────────────────────────────────────────────────
@@ -381,6 +386,10 @@ const CFA_REGIONS_SEED = [
   ['CFA GGN','Haryana'], ['CFA GGN','Rajasthan'], ['CFA GGN','Ladakh'], ['CFA GGN','Chandigarh'],
   ['CFA BLR','Telangana'], ['CFA BLR','Andhra Pradesh'], ['CFA BLR','Karnataka'],
   ['CFA BLR','Tamil Nadu'], ['CFA BLR','Kerala'],
+  // Added 2026-10-21 (Sheet2 of "cfa item.xlsx"). Recognised as CFA-serviceable;
+  // Origin is NOT routed to CFA MUM (user decision).
+  ['CFA MUM','Maharashtra'], ['CFA MUM','Goa'], ['CFA MUM','Gujarat'],
+  ['CFA MUM','Madhya Pradesh'], ['CFA MUM','Daman & Diu'],
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -689,9 +698,28 @@ function switchTab(tab) {
    Masters tab — and "Reset to bundled" discards those edits.
    run() awaits mastersReady, so a fast Generate click cannot race the fetch. */
 let mastersError = '';
+/* One-time CFA update (2026-10-21): a master saved in this browser before the
+   new seeds would otherwise keep the old lists forever. Replaces CFA SKU Master
+   with CFA_SKU_SEED and adds any CFA_REGIONS_SEED row that is missing (existing
+   region rows are kept). Runs once per browser, so later edits stick. */
+const CFA_UPDATE_FLAG = 'farmley.dispatch.cfaUpdate.2026-10-21';
+function applyCfaUpdateOnce() {
+  try { if (localStorage.getItem(CFA_UPDATE_FLAG)) return; } catch (e) { return; }
+  if (!masters) return;
+  const skuT = MASTER_TABLES.find(t => t.key === 'cfa');
+  const regT = MASTER_TABLES.find(t => t.key === 'cfaRegions');
+  masters.cfa = seedRowsFor(skuT);
+  // Local normaliser: this runs at page load, before the shared `nor` const exists.
+  const k = r => (String(r.CFA||'')+'|'+String(r['Shipping State']||'')).trim().toLowerCase();
+  const have = new Set((masters.cfaRegions||[]).map(k));
+  masters.cfaRegions = (masters.cfaRegions||[]).concat(seedRowsFor(regT).filter(r => !have.has(k(r))));
+  if (mastersSource === 'browser') saveMastersToStorage();
+  try { localStorage.setItem(CFA_UPDATE_FLAG, '1'); } catch (e) {}
+}
+
 async function initMasters() {
   mastersError = '';
-  if (loadMastersFromStorage()) { mastersSource = 'browser'; return; }
+  if (loadMastersFromStorage()) { mastersSource = 'browser'; applyCfaUpdateOnce(); return; }
   try {
     // NOT force-cache: that ignores revalidation and will happily keep
     // serving a stale body forever — including the index.html a catch-all
@@ -966,8 +994,7 @@ async function run() {
   /* ── Common CFA item code list (Conditions 20 & 27) ───────────────
      ONE list of Item_Codes shared by BOTH CFA (GGN) and CFA (BLR).
      Read from the editable "CFA SKU Master" table (Masters tab) so rows
-     can be added there; it starts as CFA_SKU_SEED, the same 77 codes this
-     was hard-coded to before. Matching is on Item_Code, not Item_Name. */
+     can be added there; it starts as CFA_SKU_SEED (82 codes since 2026-10-21). Matching is on Item_Code, not Item_Name. */
   const CFA_COMMON_ITEM_CODES = new Set(
     ((masters && masters.cfa && masters.cfa.length)
        ? masters.cfa.map(r => r['Item Code'])
@@ -1108,6 +1135,9 @@ async function run() {
     ? maxYestNumericRemark + 1
     : Math.round((new Date() - new Date('1899-12-30T00:00:00Z')) / 86400000);
   log(`Today date serial: ${todaySerial} = ${serialToDateStr(todaySerial)}`,'info');
+
+  /* Real calendar date of this run (browser clock) — used only by CONDITION 43. */
+  const realTodaySerial = Math.round((new Date() - new Date('1899-12-30T00:00:00Z')) / 86400000);
 
 
   /* ── Detect Dump column names ────────────────────────────────────────── */
@@ -1305,9 +1335,13 @@ async function run() {
     // matching the export's VLOOKUP, which returns "" when the CC is not found.
     if (remarkRaw === null || remarkRaw === undefined || String(remarkRaw).trim() === '') remarkRaw = '';
 
-    /* CONDITION 43 ("Now" auto-close after 6 days) CANCELLED 2026-10-12 — it overwrote
-       yesterday's remark (dates, RM Issue, Discontinue...) with "close". Remark is now
-       always yesterday's remark as-is, blank when there is none. */
+    /* CONDITION 43 (revised 2026-10-21): "Now" client_type auto-close after 10 days.
+       Yesterday's remark always wins. Only when yesterday has NO remark for this CC,
+       and Sales_Order_Date is 10+ days before the real date of the run, Remark =
+       "close". (Before 2026-10-12 it was 6 days and overwrote yesterday's remark.) */
+    if (remarkRaw === '' && isNow && soDateSerial && (realTodaySerial - soDateSerial) >= 10) {
+      remarkRaw = 'close';
+    }
 
     /* ── CONDITION 26 (REVISED): Rea = origin validation (TRUE/FALSE) ──
        Expected Origin: item_parent map first (Munchies Waves→Rebela,
@@ -2335,7 +2369,13 @@ function exportToExcel() {
     // Remark (Condition 7): VLOOKUP from Yesterday on CC match
     // Condition 21 override: closed if PendKgs < OriginKgs AND >0 AND (Modern Trade/Quick Commerce) AND Avenue E-Commerce
     const remAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Remark']});
-    ws[remAddr] = { t:'s', f:`IFERROR(VLOOKUP(LOWER(${C('CC')}${r}),Yesterday!A$2:B$${yestRows+1},2,FALSE),"")` };
+    if (outputRows[i]._remarkRaw === 'close') {
+      // CONDITION 43: only set when yesterday had no remark, so the VLOOKUP would
+      // return "" — write the literal so the file matches the preview.
+      ws[remAddr] = { t:'s', v:'close' };
+    } else {
+      ws[remAddr] = { t:'s', f:`IFERROR(VLOOKUP(LOWER(${C('CC')}${r}),Yesterday!A$2:B$${yestRows+1},2,FALSE),"")` };
+    }
 
     // Rea is a plain computed TRUE/FALSE origin-validation value — no formula.
 
