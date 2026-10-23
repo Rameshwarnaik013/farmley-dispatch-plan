@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-10-21.2</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-10-23.1</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -275,8 +275,9 @@ const CONDITIONS = [
   { sno:40, col:'Priority (Quick Commerce Source Check reason)', rule:'ADDED 2026-09-15, wording REVISED 2026-09-15 — additive, does not change Rea, Source Check, Expected Source, Order Corrected Remark, or Priority\'s existing Rea-FALSE reason text. When customer_group is Quick Commerce AND Rea = "TRUE" (so Priority would otherwise stay blank) AND Source Check = "FALSE", Priority is now filled with "Expected <Order Corrected Remark value>" (e.g. "Expected CFA BLR") — matching the terse "Expected X" style already used by the Rea-FALSE reason. Every other row (any other customer_group, or Rea not exactly "TRUE", or Source Check "TRUE") is unaffected.' },
   { sno:41, col:'Origin (Modern Trade / Avenue Supermarts Ltd)', rule:'ADDED 2026-09-16 — additive origin override gated on BOTH customer_group = Modern Trade AND Customer = Avenue Supermarts Ltd. By Item_Group: Makhana → Origin = Purnea; Desserts → Origin = Kundli; every other Item_Group → Origin = Indore. Runs alongside the other origin overrides (after the Quick Commerce Branch map, before Day is computed). Any row that is not both Modern Trade AND Avenue Supermarts Ltd is unaffected and keeps whatever Origin the rules above it already produced.' },
   { sno:42, col:'CFA Regions master (Is CFA / Expected Source / CFA Serviceability Check / Order Corrected Remark / Source Check / Priority)', rule:'ADDED 2026-09-21 — the two hardcoded state lists behind Condition 30 (10 north states for CFA GGN, 5 south states for CFA BLR) now live in an editable "CFA Regions" tab in the Masters editor: one row per (CFA, Shipping State). CFA Serviceability (Is CFA, Expected Source, CFA Serviceability Check, Order Corrected Remark, Source Check, and — via Condition 40 — Priority for Quick Commerce) is built directly from this master, so ANY CFA name added there automatically gets recognised by all six columns with no code change. If the master tab is empty it falls back to today\'s exact 15 rows (CFA_REGIONS_SEED), so behaviour is unchanged until edited. Deliberately NOT touched: Origin itself is still only ever literally set to "CFA (GGN)"/"CFA (BLR)" by Conditions 19-20/27 (unchanged) — a new CFA added to this master will show up as CFA-serviceable in the six columns above without being auto-routed there, by design. CFA_CUSTOMER_GROUPS and the "CFA Check" Dump-passthrough column are also untouched.' },
-  { sno:43, col:'Remark ("Now" client_type auto-close)', rule:'REVISED 2026-10-21. For client_type "Now" only: if the Sales_Order_Date is 10 or more days before the real date of the run, Remark = "close", replacing the yesterday remark. If it is under 10 days old, Remark = the yesterday remark as-is (blank if none). Every other client_type: Remark = the yesterday remark as-is (dates, text, anything), blank if none. History: 6 days until 2026-10-12, cancelled 2026-10-12, back at 10 days on 2026-10-21.' },
+  { sno:43, col:'Remark ("Now" client_type auto-close)', rule:'MOVED to Condition 45 at the bottom of this list on 2026-10-23 (same rule, no logic change).' },
   { sno:44, col:'Moq validation',          rule:'ADDED 2026-10-09 — new LAST column of the exported main sheet, all customers. "MOQ" when Item_Group = Munchies AND Origin Kgs < 15, else blank. Origin Kgs is the value shown in that column (Dump Origin Kgs, or Pending Kgs when blank; blank or text counts as 0). Remark and every other column are unaffected. Also on 2026-10-09: charge weight, Boxes*charge weight, Lowest 1, Lowest Score 1, Lowest 2 and Lowest Score 2 were dropped from the exported main sheet — they stay in the preview and the Freight Comparison sheet.' },
+  { sno:45, col:'Remark — "Now" orders 10+ days old = close', rule:'For client_type "Now" only: Age = today\'s date (the day you click Generate) minus Sales_Order_Date, in calendar days. If Age is 10 or more, Remark = "close", replacing the yesterday remark. If Age is under 10, Remark = the yesterday remark as-is (blank if none). Every other client_type: Remark = the yesterday remark as-is, blank if none. A blank Sales_Order_Date never closes. Applies to the preview and the downloaded file. Example on 21 Oct: SO 11 Oct (10 days) = close; SO 12 Oct (9 days) = yesterday remark. (Was Condition 43; same rule.)' },
 ];
 
 /* ── CFA SKU master seed (Conditions 20, 27, 29-32) ────────────────────────
@@ -1136,7 +1137,7 @@ async function run() {
     : Math.round((new Date() - new Date('1899-12-30T00:00:00Z')) / 86400000);
   log(`Today date serial: ${todaySerial} = ${serialToDateStr(todaySerial)}`,'info');
 
-  /* Real calendar date of this run (browser clock) — used only by CONDITION 43. */
+  /* Real calendar date of this run (browser clock) — used only by CONDITION 45. */
   const realTodaySerial = Math.round((new Date() - new Date('1899-12-30T00:00:00Z')) / 86400000);
 
 
@@ -1335,7 +1336,7 @@ async function run() {
     // matching the export's VLOOKUP, which returns "" when the CC is not found.
     if (remarkRaw === null || remarkRaw === undefined || String(remarkRaw).trim() === '') remarkRaw = '';
 
-    /* CONDITION 43 (revised 2026-10-21, v2): "Now" client_type only. Sales_Order_Date
+    /* CONDITION 45 (was 43; revised 2026-10-21, v2): "Now" client_type only. Sales_Order_Date
        10+ days before the real date of the run -> Remark = "close", REPLACING whatever
        yesterday said. Under 10 days -> yesterday's remark as-is (blank if none).
        Every other client_type keeps yesterday's remark as-is. */
@@ -2370,7 +2371,7 @@ function exportToExcel() {
     // Condition 21 override: closed if PendKgs < OriginKgs AND >0 AND (Modern Trade/Quick Commerce) AND Avenue E-Commerce
     const remAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Remark']});
     if (outputRows[i]._remarkRaw === 'close') {
-      // CONDITION 43: bypass the VLOOKUP and write the literal so the file
+      // CONDITION 45: bypass the VLOOKUP and write the literal so the file
       // matches the preview, whatever the Yesterday sheet holds for this CC.
       ws[remAddr] = { t:'s', v:'close' };
     } else {
