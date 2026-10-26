@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-10-23.1</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-10-26.1</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -278,6 +278,7 @@ const CONDITIONS = [
   { sno:43, col:'Remark ("Now" client_type auto-close)', rule:'MOVED to Condition 45 at the bottom of this list on 2026-10-23 (same rule, no logic change).' },
   { sno:44, col:'Moq validation',          rule:'ADDED 2026-10-09 — new LAST column of the exported main sheet, all customers. "MOQ" when Item_Group = Munchies AND Origin Kgs < 15, else blank. Origin Kgs is the value shown in that column (Dump Origin Kgs, or Pending Kgs when blank; blank or text counts as 0). Remark and every other column are unaffected. Also on 2026-10-09: charge weight, Boxes*charge weight, Lowest 1, Lowest Score 1, Lowest 2 and Lowest Score 2 were dropped from the exported main sheet — they stay in the preview and the Freight Comparison sheet.' },
   { sno:45, col:'Remark — "Now" orders 10+ days old = close', rule:'For client_type "Now" only: Age = today\'s date (the day you click Generate) minus Sales_Order_Date, in calendar days. If Age is 10 or more, Remark = "close", replacing the yesterday remark. If Age is under 10, Remark = the yesterday remark as-is (blank if none). Every other client_type: Remark = the yesterday remark as-is, blank if none. A blank Sales_Order_Date never closes. Applies to the preview and the downloaded file. Example on 21 Oct: SO 11 Oct (10 days) = close; SO 12 Oct (9 days) = yesterday remark. (Was Condition 43; same rule.)' },
+  { sno:46, col:'Origin (Avenue Supermarts Ltd by Branch, CFA SKUs)', rule:'ADDED 2026-10-26. Applies only when ALL three hold: Customer = Avenue Supermarts Ltd, Branch is Mangalore, Haryana or Maharashtra, and Item_Code is in the CFA SKU Master (Masters tab). Then Origin is set from Branch: Mangalore = CFA (BLR), Haryana = Kundli, Maharashtra = CFA (MUM). For those rows it overrides every earlier Origin rule (19, 20, 27, 28, 41). Every other row, including Avenue Supermarts rows with another Branch or a SKU not in the CFA SKU Master, keeps the existing Origin logic. Runs before Day, so Day, Rea, Source Check, Priority and freight use the new Origin.' },
 ];
 
 /* ── CFA SKU master seed (Conditions 20, 27, 29-32) ────────────────────────
@@ -991,6 +992,8 @@ async function run() {
 
   /* ── CFA Gurgaon constants ─────────────────────────────────────────── */
   const CFA_CUSTOMER_GROUPS = new Set(['amazon retail india','category a','vending','horeca']);
+  /* Condition 46: Avenue Supermarts Ltd Branch -> Origin (CFA SKUs only). */
+  const AVENUE_BRANCH_ORIGIN = { 'mangalore':'CFA (BLR)', 'haryana':'Kundli', 'maharashtra':'CFA (MUM)' };
 
   /* ── Common CFA item code list (Conditions 20 & 27) ───────────────
      ONE list of Item_Codes shared by BOTH CFA (GGN) and CFA (BLR).
@@ -1284,6 +1287,17 @@ async function run() {
       if (ig41 === 'makhana') origin = 'Purnea';
       else if (ig41 === 'desserts') origin = 'Kundli';
       else origin = 'Indore';
+    }
+
+    /* ── CONDITION 46: Avenue Supermarts Ltd → Origin by Branch ─────────
+       ALL three must hold: Customer = Avenue Supermarts Ltd, Branch is
+       Mangalore / Haryana / Maharashtra, and Item_Code is in the CFA SKU
+       Master. Then Origin = CFA (BLR) / Kundli / CFA (MUM), overriding every
+       Origin rule above for THAT row only. Any other row — other customers,
+       or Avenue rows failing a check — keeps the Origin computed above. */
+    if (nor(customerVal) === 'avenue supermarts ltd' && CFA_COMMON_ITEM_CODES.has(nor(itemCode))) {
+      const o46 = AVENUE_BRANCH_ORIGIN[nor(row[COL.Branch])];
+      if (o46) origin = o46;
     }
 
     /* CONDITION 5: Day from Lead Time */
