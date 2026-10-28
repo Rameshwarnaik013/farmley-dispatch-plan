@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-10-26.2</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-10-28.1</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -279,6 +279,7 @@ const CONDITIONS = [
   { sno:44, col:'Moq validation',          rule:'ADDED 2026-10-09 — new LAST column of the exported main sheet, all customers. "MOQ" when Item_Group = Munchies AND Origin Kgs < 15, else blank. Origin Kgs is the value shown in that column (Dump Origin Kgs, or Pending Kgs when blank; blank or text counts as 0). Remark and every other column are unaffected. Also on 2026-10-09: charge weight, Boxes*charge weight, Lowest 1, Lowest Score 1, Lowest 2 and Lowest Score 2 were dropped from the exported main sheet — they stay in the preview and the Freight Comparison sheet.' },
   { sno:45, col:'Remark — "Now" orders 10+ days old = close', rule:'For client_type "Now" only: Age = today\'s date (the day you click Generate) minus Sales_Order_Date, in calendar days. If Age is 10 or more, Remark = "close", replacing the yesterday remark. If Age is under 10, Remark = the yesterday remark as-is (blank if none). Every other client_type: Remark = the yesterday remark as-is, blank if none. A blank Sales_Order_Date never closes. Applies to the preview and the downloaded file. Example on 21 Oct: SO 11 Oct (10 days) = close; SO 12 Oct (9 days) = yesterday remark. (Was Condition 43; same rule.)' },
   { sno:46, col:'Origin (Avenue Supermarts Ltd special case)', rule:'ADDED 2026-10-26. A special case for Customer = Avenue Supermarts Ltd only. When the Branch is Mangalore, Haryana or Maharashtra AND the Item_Code is in the CFA SKU Master (Masters tab), Origin is set from Branch: Mangalore = CFA (BLR), Haryana = Kundli, Maharashtra = CFA (MUM). All other rules stay exactly as they are; every other customer, and Avenue Supermarts rows with another Branch or a SKU not in the CFA SKU Master, follow the existing Origin logic. Runs before Day, so Day, Rea, Source Check, Priority and freight use this Origin.' },
+  { sno:47, col:'Remark — Partial Dispatch Close (first validation)', rule:'ADDED 2026-10-28 from Dispatch Guidelines (Sheet2). This is the FIRST check for Remark: if Dispatch_Status = Partial Dispatch AND the row matches the Partial Dispatch Close master (Masters tab), Remark = close, ahead of the yesterday remark and the Now 10-day rule. The master starts with 22 named customers (Zepto, Blink, Scootsy, Innovative Retail, Curioso, Airplaza, Heloria, Avenue E-Commerce, Flipkart, SNV Aviation, Metro, Shoppers Stop, Market Ninety Nine, Cp Wholesale, Reliance Retail x3, More Retail, Avenue Supermarts, Wal-Mart, Max Hypermarket, Spencers) plus customer_group CPC KPKB and CSD (any customer). A master row matches when every non-blank field equals the plan row; add or remove rows there, no code change needed. Also: close is now written one way everywhere — a yesterday remark of Close or CLOSE comes through as close.' },
 ];
 
 /* ── CFA SKU master seed (Conditions 20, 27, 29-32) ────────────────────────
@@ -382,6 +383,41 @@ const CFA_SKU_SEED = [
    added there without touching this file. Today's exact 10 north / 5 south
    states, unchanged from the previous hardcoded CFA_SHIPPING_STATES /
    CFA_BLR_STATES. */
+/* ── Partial Dispatch Close master seed (Condition 47) ─────────────────────
+   From Sheet2 of the user's "Dispatch Guidelines (1).xlsx" (2026-10-28).
+   A row matches when every NON-blank field equals the plan row (case- and
+   space-insensitive): customer_group, Customer, Dispatch_Status. Named
+   customers carry a blank customer_group on purpose — the sheet's group
+   column was a block heading (Metro / Wal-Mart sat under "E-Commerce" but
+   are Modern Trade in the Dump). CPC KPKB and CSD rows have a blank
+   Customer, so they cover every customer in that group. */
+const PD_CLOSE_SEED = [
+  ['','Zepto Limited','Partial Dispatch'],
+  ['','Blink Commerce Private Limited','Partial Dispatch'],
+  ['','SCOOTSY LOGISTICS PRIVATE LIMITED','Partial Dispatch'],
+  ['','INNOVATIVE RETAIL CONCEPTS PRIVATE LIMITED','Partial Dispatch'],
+  ['','Curioso Fashions Private Limited','Partial Dispatch'],
+  ['','Airplaza Retail Holdings Private Limited','Partial Dispatch'],
+  ['','Heloria Infotech Private Limited','Partial Dispatch'],
+  ['','Avenue E-Commerce Ltd','Partial Dispatch'],
+  ['','Flipkart India Private Limited','Partial Dispatch'],
+  ['','SNV Aviation Private Limited','Partial Dispatch'],
+  ['','Metro Cash & Carry India Pvt. Ltd.','Partial Dispatch'],
+  ['','Shoppers Stop Limited','Partial Dispatch'],
+  ['','Market Ninety Nine Private Limited','Partial Dispatch'],
+  ['','Cp Wholesale India Private Limited','Partial Dispatch'],
+  ['','Reliance Retail Limited','Partial Dispatch'],
+  ['','Reliance Retail Limited - 2022','Partial Dispatch'],
+  ['','MORE RETAIL LIMITED','Partial Dispatch'],
+  ['','Reliance Retail Limited_Smart Bazar','Partial Dispatch'],
+  ['','Avenue Supermarts Ltd','Partial Dispatch'],
+  ['','Wal-Mart India Private Limited','Partial Dispatch'],
+  ['','MAX HYPERMARKET INDIA PRIVATE LIMITED','Partial Dispatch'],
+  ['','SPENCER\'S RETAIL LIMITED','Partial Dispatch'],
+  ['CPC KPKB','','Partial Dispatch'],
+  ['CSD','','Partial Dispatch'],
+];
+
 const CFA_REGIONS_SEED = [
   ['CFA GGN','Uttarakhand'], ['CFA GGN','Uttar Pradesh'], ['CFA GGN','Punjab'],
   ['CFA GGN','Delhi'], ['CFA GGN','Jammu and Kashmir'], ['CFA GGN','Himachal Pradesh'],
@@ -419,6 +455,8 @@ const MASTER_TABLES = [
     cols:['Item Code','Item Name'], seed: CFA_SKU_SEED },
   { key:'cfaRegions', sheet:'CFA Regions',                name:'CFA Regions',
     cols:['CFA','Shipping State'], seed: CFA_REGIONS_SEED },
+  { key:'pdClose',  sheet:'Partial Dispatch Close',      name:'Partial Dispatch Close',
+    cols:['customer_group','Customer','Dispatch_Status'], seed: PD_CLOSE_SEED },
 ];
 
 /* A table declared with a `seed` starts populated from code when neither the
@@ -992,6 +1030,15 @@ async function run() {
 
   /* ── CFA Gurgaon constants ─────────────────────────────────────────── */
   const CFA_CUSTOMER_GROUPS = new Set(['amazon retail india','category a','vending','horeca']);
+  /* Condition 47: Partial Dispatch Close rules, from the editable master
+     (falls back to PD_CLOSE_SEED). Rows with every field blank are ignored. */
+  const PD_CLOSE_RULES = ((masters && masters.pdClose && masters.pdClose.length)
+      ? masters.pdClose.map(r => [r.customer_group, r.Customer, r.Dispatch_Status])
+      : PD_CLOSE_SEED)
+    .map(a => a.map(v => String(v ?? '').trim().toLowerCase()))
+    .filter(a => a[0] || a[1]);
+  const pdCloseMatch = (grp, cust, ds) => PD_CLOSE_RULES.some(([g, c, d]) =>
+    (!g || g === grp) && (!c || c === cust) && (!d || d === ds));
   /* Condition 46: Avenue Supermarts Ltd Branch -> Origin (CFA SKUs only). */
   const AVENUE_BRANCH_ORIGIN = { 'mangalore':'CFA (BLR)', 'haryana':'Kundli', 'maharashtra':'CFA (MUM)' };
 
@@ -1355,6 +1402,18 @@ async function run() {
        yesterday said. Under 10 days -> yesterday's remark as-is (blank if none).
        Every other client_type keeps yesterday's remark as-is. */
     if (isNow && soDateSerial && (realTodaySerial - soDateSerial) >= 10) {
+      remarkRaw = 'close';
+    }
+
+    /* "close" is written one way everywhere: a yesterday remark of Close / CLOSE
+       is normalised to "close" (the Yesterday reference sheet does the same). */
+    if (typeof remarkRaw === 'string' && remarkRaw.trim().toLowerCase() === 'close') remarkRaw = 'close';
+
+    /* ── CONDITION 47: Partial Dispatch Close — FIRST validation for Remark ──
+       Dispatch_Status = Partial Dispatch AND the row matches the Partial Dispatch
+       Close master (named Customer, or customer_group CPC KPKB / CSD) -> Remark
+       = "close", ahead of the yesterday remark and the Now rule. */
+    if (pdCloseMatch(nor(custGroup), nor(customerVal), nor(dispStatus))) {
       remarkRaw = 'close';
     }
 
@@ -2328,6 +2387,8 @@ function exportToExcel() {
       }
       if (ccVal) {
         const remarkSerial = remarkToSerial(rem);
+        // "close" normalised to one spelling, matching run() (Condition 47 note).
+        if (typeof rem === 'string' && rem.trim().toLowerCase() === 'close') rem = 'close';
         yestExport.push({ CC: ccVal.toLowerCase(), Remark: remarkSerial!==null ? remarkSerial : (rem||'') });
       }
     });
