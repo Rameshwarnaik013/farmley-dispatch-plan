@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-10-28.1</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-11-04.1</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -280,6 +280,7 @@ const CONDITIONS = [
   { sno:45, col:'Remark — "Now" orders 10+ days old = close', rule:'For client_type "Now" only: Age = today\'s date (the day you click Generate) minus Sales_Order_Date, in calendar days. If Age is 10 or more, Remark = "close", replacing the yesterday remark. If Age is under 10, Remark = the yesterday remark as-is (blank if none). Every other client_type: Remark = the yesterday remark as-is, blank if none. A blank Sales_Order_Date never closes. Applies to the preview and the downloaded file. Example on 21 Oct: SO 11 Oct (10 days) = close; SO 12 Oct (9 days) = yesterday remark. (Was Condition 43; same rule.)' },
   { sno:46, col:'Origin (Avenue Supermarts Ltd special case)', rule:'ADDED 2026-10-26. A special case for Customer = Avenue Supermarts Ltd only. When the Branch is Mangalore, Haryana or Maharashtra AND the Item_Code is in the CFA SKU Master (Masters tab), Origin is set from Branch: Mangalore = CFA (BLR), Haryana = Kundli, Maharashtra = CFA (MUM). All other rules stay exactly as they are; every other customer, and Avenue Supermarts rows with another Branch or a SKU not in the CFA SKU Master, follow the existing Origin logic. Runs before Day, so Day, Rea, Source Check, Priority and freight use this Origin.' },
   { sno:47, col:'Remark — Partial Dispatch Close (first validation)', rule:'ADDED 2026-10-28 from Dispatch Guidelines (Sheet2). This is the FIRST check for Remark: if Dispatch_Status = Partial Dispatch AND the row matches the Partial Dispatch Close master (Masters tab), Remark = close, ahead of the yesterday remark and the Now 10-day rule. The master starts with 22 named customers (Zepto, Blink, Scootsy, Innovative Retail, Curioso, Airplaza, Heloria, Avenue E-Commerce, Flipkart, SNV Aviation, Metro, Shoppers Stop, Market Ninety Nine, Cp Wholesale, Reliance Retail x3, More Retail, Avenue Supermarts, Wal-Mart, Max Hypermarket, Spencers) plus customer_group CPC KPKB and CSD (any customer). A master row matches when every non-blank field equals the plan row; add or remove rows there, no code change needed. Also: close is now written one way everywhere — a yesterday remark of Close or CLOSE comes through as close.' },
+  { sno:48, col:'Pending Qty / Pending Kgs', rule:'ADDED 2026-11-04. In the output, Pending Qty = Qty - Delivered_Qty and Pending Kgs = Pending Qty x conversion_factor, as live formulas in the downloaded file. A blank Delivered_Qty counts as 0. If Qty or conversion_factor is not a number, the Dump value is kept. Row filtering is unchanged: Condition 1 still reads Pending Kgs from the Dump, and the Origin Kgs fallback still uses the Dump value.' },
 ];
 
 /* ── CFA SKU master seed (Conditions 20, 27, 29-32) ────────────────────────
@@ -1549,6 +1550,17 @@ async function run() {
     const boxCw = (chargeWt === '' || isNaN(boxesNum)) ? '' : chargeWt * boxesNum;
 
     const fmtD = s => s ? serialToDateStr(s) : '';
+    /* CONDITION 48: output Pending Qty = Qty - Delivered_Qty and Pending Kgs =
+       Pending Qty * conversion_factor. Row filter (Condition 1) and the Origin
+       Kgs fallback still read the Dump value. A non-numeric Qty or
+       conversion_factor keeps the Dump value instead of showing a false 0. */
+    const r6 = v => Math.round(v * 1e6) / 1e6;
+    const qty48 = parseFloat(row['Qty']), cf48 = parseFloat(row['conversion_factor']);
+    const pendQtyCalc = !isNaN(qty48);
+    const pendKgsCalc = pendQtyCalc && !isNaN(cf48);
+    const outPendQty = pendQtyCalc ? r6(qty48 - (parseFloat(row['Delivered_Qty']) || 0)) : (row[COL.PendQty]||'');
+    const outPendKgs = pendKgsCalc ? r6(outPendQty * cf48) : pendKgs;
+
     const fmtRemark = () => {
       if (remarkRaw==='') return '';
       if (remarkSerial!==null) return fmtD(remarkSerial);
@@ -1585,8 +1597,10 @@ async function run() {
       client_type: clientType,
       Customer: customerVal,
       Item_Name: itemName,
-      'Pending Qty': row[COL.PendQty]||'',
-      'Pending Kgs': pendKgs,
+      'Pending Qty': outPendQty,
+      'Pending Kgs': outPendKgs,
+      _pendQtyCalc: pendQtyCalc,
+      _pendKgsCalc: pendKgsCalc,
       Boxes: row['Boxes']||'',
       TPT: row['TPT']||'',
       Origin: origin,  /* may be overridden to CFA (GGN) / CFA (BLR) */
@@ -2451,6 +2465,18 @@ function exportToExcel() {
       ws[remAddr] = { t:'s', v:'close' };
     } else {
       ws[remAddr] = { t:'s', f:`IFERROR(VLOOKUP(LOWER(${C('CC')}${r}),Yesterday!A$2:B$${yestRows+1},2,FALSE),"")` };
+    }
+
+    // Pending Qty / Pending Kgs (Condition 48). N() matches parseFloat(...)||0 in run():
+    // a zero Qty or conversion_factor is exported as a blank cell. Rows with a
+    // non-numeric input keep the literal Dump value already in the cell.
+    if (outputRows[i]._pendQtyCalc) {
+      ws[XLSX.utils.encode_cell({r:r-1, c:colIdx['Pending Qty']})] =
+        { t:'n', f:`ROUND(N(${C('Qty')}${r})-N(${C('Delivered_Qty')}${r}),6)` };
+    }
+    if (outputRows[i]._pendKgsCalc) {
+      ws[XLSX.utils.encode_cell({r:r-1, c:colIdx['Pending Kgs']})] =
+        { t:'n', f:`ROUND(N(${C('Pending Qty')}${r})*N(${C('conversion_factor')}${r}),6)` };
     }
 
     // Rea is a plain computed TRUE/FALSE origin-validation value — no formula.
