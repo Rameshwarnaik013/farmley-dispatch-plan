@@ -141,7 +141,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 <body>
 <div class="app">
   <header>
-    <div class="badge">FARMLEY LOGISTICS · v2026-11-05.1</div>
+    <div class="badge">FARMLEY LOGISTICS · v2026-11-24.1</div>
     <h1>Dispatch Plan Generator</h1>
     <p class="subtitle">Upload the daily dump — masters are already loaded — to generate today's plan with freight ranking</p>
   </header>
@@ -241,7 +241,7 @@ const CONDITIONS = [
   { sno:3,  col:'Final Dispatch Status, Dispatch_Status', rule:'If any one among Origin_Indore_Status, Origin_Purnea_Status, Origin_UD_Foods_Status contains Partial Dispatch, populate columns Dispatch_Status and Final Dispatch Status as Partial Dispatch. If none contain Partial Dispatch but any contains Pending, populate columns Dispatch_Status and Final Dispatch Status as Pending. Keep only rows where Final Dispatch Status is Partial Dispatch or Pending.' },
   { sno:4,  col:'CC',                       rule:'Concatenate Sales_Order_No + Item_Code from Dump tab.' },
   { sno:5,  col:'Day',                      rule:'VLOOKUP: Match Origin + Shipping State from Dump → LEAD TIME tab (Origin, Shipping State, Day). Fill the Day column from LEAD TIME.' },
-  { sno:6,  col:'Appt',                     rule:'If client_type is FK-Grocery-VS48860, FK-Hyperlocal-VS46867, or FK-Alpha-VS46867: VLOOKUP on Po_No in Appointments tab (PO-No → Appt date column). REVISED: if that cell is not a parseable date (and not a multi-date list), the raw text is now fetched as-is (e.g. "Cancelled", "Appt Not Required") instead of being dropped. If client_type is "Now": Appt = Sales_Order_Date + 7.' },
+  { sno:6,  col:'Appt',                     rule:'If client_type is FK-Grocery-VS48860, FK-Hyperlocal-VS46867, or FK-Alpha-VS46867: VLOOKUP on Po_No in Appointments tab (PO-No → Appt date column). REVISED: if that cell is not a parseable date (and not a multi-date list), the raw text is now fetched as-is (e.g. "Cancelled", "Appt Not Required") instead of being dropped. If client_type is "Now": Appt = Sales_Order_Date + 14 (was + 7 until 2026-11-24).' },
   { sno:7,  col:'Remark',                   rule:'Remark is looked up directly from Dispatch Plan_yesterday using the CC column match. Fetches the Remark column exactly as-is.' },
   { sno:10, col:'If Dispatched, then EDD',  rule:'= Remark + Day (Excel serial addition). Blank if Remark is a text value (e.g. "FTL 7 May Appt", "Close", "Appt Required").' },
   { sno:11, col:'If Dispatched, then EDD',  rule:'Special case — Airlines: If_Dispatched_EDD is still Remark + Day. (Condition 17 in sheet means Airlines EDD column = po_expiry_date, not the If_Dispatched_EDD column.)' },
@@ -276,12 +276,13 @@ const CONDITIONS = [
   { sno:41, col:'Origin (Modern Trade / Avenue Supermarts Ltd)', rule:'ADDED 2026-09-16 — additive origin override gated on BOTH customer_group = Modern Trade AND Customer = Avenue Supermarts Ltd. By Item_Group: Makhana → Origin = Purnea; Desserts → Origin = Kundli; every other Item_Group → Origin = Indore. Runs alongside the other origin overrides (after the Quick Commerce Branch map, before Day is computed). Any row that is not both Modern Trade AND Avenue Supermarts Ltd is unaffected and keeps whatever Origin the rules above it already produced.' },
   { sno:42, col:'CFA Regions master (Is CFA / Expected Source / CFA Serviceability Check / Order Corrected Remark / Source Check / Priority)', rule:'ADDED 2026-09-21 — the two hardcoded state lists behind Condition 30 (10 north states for CFA GGN, 5 south states for CFA BLR) now live in an editable "CFA Regions" tab in the Masters editor: one row per (CFA, Shipping State). CFA Serviceability (Is CFA, Expected Source, CFA Serviceability Check, Order Corrected Remark, Source Check, and — via Condition 40 — Priority for Quick Commerce) is built directly from this master, so ANY CFA name added there automatically gets recognised by all six columns with no code change. If the master tab is empty it falls back to today\'s exact 15 rows (CFA_REGIONS_SEED), so behaviour is unchanged until edited. Deliberately NOT touched: Origin itself is still only ever literally set to "CFA (GGN)"/"CFA (BLR)" by Conditions 19-20/27 (unchanged) — a new CFA added to this master will show up as CFA-serviceable in the six columns above without being auto-routed there, by design. CFA_CUSTOMER_GROUPS and the "CFA Check" Dump-passthrough column are also untouched.' },
   { sno:43, col:'Remark ("Now" client_type auto-close)', rule:'MOVED to Condition 45 at the bottom of this list on 2026-10-23 (same rule, no logic change).' },
-  { sno:44, col:'Moq validation',          rule:'ADDED 2026-10-09 — new LAST column of the exported main sheet, all customers. "MOQ" when Item_Group = Munchies AND Origin Kgs < 15, else blank. Origin Kgs is the value shown in that column (Dump Origin Kgs, or Pending Kgs when blank; blank or text counts as 0). Remark and every other column are unaffected. Also on 2026-10-09: charge weight, Boxes*charge weight, Lowest 1, Lowest Score 1, Lowest 2 and Lowest Score 2 were dropped from the exported main sheet — they stay in the preview and the Freight Comparison sheet.' },
-  { sno:45, col:'Remark — "Now" orders 10+ days old = close', rule:'For client_type "Now" only: Age = today\'s date (the day you click Generate) minus Sales_Order_Date, in calendar days. If Age is 10 or more, Remark = "close", replacing the yesterday remark. If Age is under 10, Remark = the yesterday remark as-is (blank if none). Every other client_type: Remark = the yesterday remark as-is, blank if none. A blank Sales_Order_Date never closes. Applies to the preview and the downloaded file. Example on 21 Oct: SO 11 Oct (10 days) = close; SO 12 Oct (9 days) = yesterday remark. (Was Condition 43; same rule.)' },
+  { sno:44, col:'Moq validation',          rule:'ADDED 2026-10-09 — new LAST column of the exported main sheet, all customers. "MOQ" when Item_Group = Munchies AND Origin Kgs < 10, else blank (the threshold was 15 until 2026-11-24). Origin Kgs is the value shown in that column (Dump Origin Kgs, or Pending Kgs when blank; blank or text counts as 0). Remark and every other column are unaffected. Also on 2026-10-09: charge weight, Boxes*charge weight, Lowest 1, Lowest Score 1, Lowest 2 and Lowest Score 2 were dropped from the exported main sheet — they stay in the preview and the Freight Comparison sheet.' },
+  { sno:45, col:'Remark — "Now" orders 14+ days old = close', rule:'For client_type "Now" only: Age = today\'s date (the day you click Generate) minus Sales_Order_Date, in calendar days. If Age is 14 or more, Remark = "close", replacing the yesterday remark. If Age is under 14, Remark = the yesterday remark as-is (blank if none). Every other client_type: Remark = the yesterday remark as-is, blank if none. A blank Sales_Order_Date never closes. Applies to the preview and the downloaded file. Example on 24 Nov: SO 10 Nov (14 days) = close; SO 11 Nov (13 days) = yesterday remark. (Was Condition 43; the threshold was 10 days until 2026-11-24.)' },
   { sno:46, col:'Origin (Avenue Supermarts Ltd special case)', rule:'ADDED 2026-10-26. A special case for Customer = Avenue Supermarts Ltd only. When the Branch is Mangalore, Haryana or Maharashtra AND the Item_Code is in the CFA SKU Master (Masters tab), Origin is set from Branch: Mangalore = CFA (BLR), Haryana = Kundli, Maharashtra = CFA (MUM). All other rules stay exactly as they are; every other customer, and Avenue Supermarts rows with another Branch or a SKU not in the CFA SKU Master, follow the existing Origin logic. Runs before Day, so Day, Rea, Source Check, Priority and freight use this Origin.' },
   { sno:47, col:'Remark — Partial Dispatch Close (first validation)', rule:'ADDED 2026-10-28 from Dispatch Guidelines (Sheet2). This is the FIRST check for Remark: if Dispatch_Status = Partial Dispatch AND the row matches the Partial Dispatch Close master (Masters tab), Remark = close, ahead of the yesterday remark and the Now 10-day rule. The master starts with 22 named customers (Zepto, Blink, Scootsy, Innovative Retail, Curioso, Airplaza, Heloria, Avenue E-Commerce, Flipkart, SNV Aviation, Metro, Shoppers Stop, Market Ninety Nine, Cp Wholesale, Reliance Retail x3, More Retail, Avenue Supermarts, Wal-Mart, Max Hypermarket, Spencers) plus customer_group CPC KPKB and CSD (any customer). A master row matches when every non-blank field equals the plan row; add or remove rows there, no code change needed. Also: close is now written one way everywhere — a yesterday remark of Close or CLOSE comes through as close.' },
   { sno:48, col:'Pending Qty / Pending Kgs', rule:'ADDED 2026-11-04. In the output, Pending Qty = Qty - Delivered_Qty and Pending Kgs = Pending Qty x conversion_factor, as live formulas in the downloaded file. A blank Delivered_Qty counts as 0. If Qty or conversion_factor is not a number, the Dump value is kept. Row filtering is unchanged: Condition 1 still reads Pending Kgs from the Dump, and the Origin Kgs fallback still uses the Dump value.' },
-  { sno:49, col:'Appt (Amazon Retail India, client_type Now)', rule:'LISTED 2026-11-05. For customer_group Amazon Retail India with client_type Now, Appt = Sales_Order_Date + 7 days, in the preview and as a live formula in the downloaded file. This is delivered by the existing Appt rule (Condition 6), which gives Sales_Order_Date + 7 to every client_type Now row, so no separate logic was added. All other Appt logic is unchanged.' },
+  { sno:49, col:'Appt (Amazon Retail India, client_type Now)', rule:'LISTED 2026-11-05, REVISED 2026-11-24 (+ 7 → + 14). For customer_group Amazon Retail India with client_type Now, Appt = Sales_Order_Date + 14 days, in the preview and as a live formula in the downloaded file. This is delivered by the existing Appt rule (Condition 6), which gives Sales_Order_Date + 14 to every client_type Now row, so no separate logic was added. All other Appt logic is unchanged.' },
+  { sno:50, col:'Origin (carried forward from Dispatch Plan_yesterday)', rule:'ADDED 2026-11-24. For customer_group Amazon Retail India, Vending, Category A or Telesales, the Origin in the output is the Origin that the Dispatch Plan_yesterday file (input 4) carries for the same CC (Sales_Order_No &amp; Item_Code). Matching is on CC only — there is no Sales_Order_No-only fallback, which would pull another line\'s Origin. Runs after every other Origin rule (Conditions 19-20, 23, 27, 28, 41, 46), so for these four groups the carried-forward Origin is what the row ends up with. If the CC is not in yesterday\'s file, its Origin cell is blank, or no Yesterday file was uploaded, the row keeps the Origin the existing rules computed — a new order is never blanked out. Every other customer_group is untouched. Runs before Day, so Day, charge weight, Rea, Expected Source, CFA Serviceability Check, Order Corrected Remark, Source Check, Group Key and the freight ranking all use this Origin, exactly as they do for the other Origin overrides. In the downloaded file the Origin cell is a live VLOOKUP into the Yesterday sheet (which now carries an Origin column) with the computed Origin as the fallback.' },
 ];
 
 /* ── CFA SKU master seed (Conditions 20, 27, 29-32) ────────────────────────
@@ -1180,6 +1181,38 @@ async function run() {
     });
   }
   log(`Yesterday remarks: ${Object.keys(yesterMap).length} CC entries`,'ok');
+  /* ── CONDITION 50: Origin carried forward from Dispatch Plan_yesterday ──
+     For customer_group Amazon Retail India / Vending / Category A / Telesales
+     the output Origin is the Origin yesterday's plan carried for the same CC.
+     Built as its own map so nothing about the Remark lookup above changes.
+     Keyed on CC only (Sales_Order_No + Item_Code) — the same key the export's
+     VLOOKUP uses, and deliberately with NO Sales_Order_No-only fallback, which
+     was removed from Remark on 2026-10-12 for pulling another line's value.
+     A blank Origin cell is not stored, so such a row keeps the Origin the
+     existing rules computed. First row wins, matching VLOOKUP. */
+  const YEST_ORIGIN_GROUPS = new Set(['amazon retail india','vending','category a','telesales']);
+  const yesterOriginMap = {};
+  if (yesterday.length > 0) {
+    const ys = yesterday[0];
+    const yCC       = fc(ys, 'CC', 'cc', 'DF:CC');
+    const yOrigin   = fc(ys, 'Origin', 'origin');
+    const ySoNo     = fc(ys, 'Sales_Order_No', 'Sales Order No', 'sales_order_no', 'sales order no', 'S0- No.');
+    const yItemCode = fc(ys, 'Item_Code', 'Item Code', 'item_code', 'item code');
+    yesterday.forEach(r => {
+      const org = String(r[yOrigin] ?? r['Origin'] ?? '').trim();
+      if (!org) return;
+      /* Same CC resolution the Yesterday reference sheet uses: the CC column
+         when it holds a real value, else Sales_Order_No + Item_Code. */
+      let ccVal = String(r[yCC] || r['DF:CC'] || r['CC'] || r['cc'] || '').trim();
+      if (!ccVal || ccVal.startsWith('#') || nor(ccVal) === 'na' || nor(ccVal) === 'n/a') {
+        const so = String(r[ySoNo] || r['Sales_Order_No'] || '').trim();
+        const ic = String(r[yItemCode] || r['Item_Code'] || '').trim();
+        ccVal = (so && ic) ? so + ic : '';
+      }
+      if (ccVal && yesterOriginMap[nor(ccVal)] === undefined) yesterOriginMap[nor(ccVal)] = org;
+    });
+  }
+  log(`Yesterday origins: ${Object.keys(yesterOriginMap).length} CC entries`,'ok');
 
   /* (Condition 26 old behaviour — Rea lookup from Yesterday — is cancelled.
      Rea is now an origin-validation flag computed per row below.) */
@@ -1349,6 +1382,18 @@ async function run() {
       if (o46) origin = o46;
     }
 
+    /* ── CONDITION 50: Origin from Dispatch Plan_yesterday, by CC ────────
+       customer_group Amazon Retail India / Vending / Category A / Telesales
+       ONLY: Origin = whatever yesterday's plan carried for this CC. Placed
+       last among the Origin rules so this is what such a row ends up with.
+       Falls back to the Origin computed above when the CC is not in
+       yesterday's file, its Origin cell is blank, or no Yesterday file was
+       uploaded — a new order is never blanked out. Every other
+       customer_group is completely unaffected. Runs before Day, so Day, Rea,
+       Source Check, Group Key and freight use this Origin. */
+    const yestOrigin = YEST_ORIGIN_GROUPS.has(nor(custGroup)) ? yesterOriginMap[nor(cc)] : undefined;
+    if (yestOrigin) origin = yestOrigin;
+
     /* CONDITION 5: Day from Lead Time */
     const day = ltMap[nor(origin)+'||'+nor(shipState)] || 0;
 
@@ -1374,7 +1419,7 @@ async function run() {
       }
     } else if (isNow) {
       const sod = toSerial(row[COL.SoDate]);
-      apptSerial = sod ? sod + 7 : null;
+      apptSerial = sod ? sod + 14 : null;
     }
 
     /* ── CONDITION 24: Airlines → po_expiry_date = Delivery_Date ──── */
@@ -1400,10 +1445,10 @@ async function run() {
     if (remarkRaw === null || remarkRaw === undefined || String(remarkRaw).trim() === '') remarkRaw = '';
 
     /* CONDITION 45 (was 43; revised 2026-10-21, v2): "Now" client_type only. Sales_Order_Date
-       10+ days before the real date of the run -> Remark = "close", REPLACING whatever
-       yesterday said. Under 10 days -> yesterday's remark as-is (blank if none).
+       14+ days before the real date of the run -> Remark = "close", REPLACING whatever
+       yesterday said. Under 14 days -> yesterday's remark as-is (blank if none).
        Every other client_type keeps yesterday's remark as-is. */
-    if (isNow && soDateSerial && (realTodaySerial - soDateSerial) >= 10) {
+    if (isNow && soDateSerial && (realTodaySerial - soDateSerial) >= 14) {
       remarkRaw = 'close';
     }
 
@@ -1578,6 +1623,7 @@ async function run() {
       _apptText: apptText,
       _poExpirySerial: poExpirySerial,
       _soDateSerial: soDateSerial,
+      _yestOrigin: yestOrigin || '',
       /* ─ output columns (all display-formatted) ─ */
       CC: cc,
       Sales_Order_No: soNo,
@@ -1657,10 +1703,10 @@ async function run() {
       'Lowest Score 2': '',
     });
     /* CONDITION 44: Moq validation — all customers. Item_Group = Munchies AND the
-       exported Origin Kgs value (blank → Pending Kgs → 0) < 15 → "MOQ". */
+       exported Origin Kgs value (blank → Pending Kgs → 0) < 10 → "MOQ". */
     const out = result[result.length - 1];
     out['Moq validation'] = (nor(out.Item_Group) === 'munchies'
-      && (parseFloat(out['Origin Kgs']) || 0) < 15) ? 'MOQ' : '';
+      && (parseFloat(out['Origin Kgs']) || 0) < 10) ? 'MOQ' : '';
   });
 
   outputRows = result;
@@ -2389,6 +2435,7 @@ function exportToExcel() {
     const ys = refData.yesterday[0];
     const yCC = fc(ys, 'CC', 'cc', 'DF:CC');
     const yRemark = fc(ys, 'Remark', 'Remarks', 'remark', 'remarks');
+    const yOrigin = fc(ys, 'Origin', 'origin');   // Condition 50
     const ySoNo = fc(ys, 'Sales_Order_No', 'Sales Order No', 'sales_order_no');
     const yItemCode = fc(ys, 'Item_Code', 'Item Code', 'item_code');
     refData.yesterday.forEach(r => {
@@ -2404,11 +2451,12 @@ function exportToExcel() {
         const remarkSerial = remarkToSerial(rem);
         // "close" normalised to one spelling, matching run() (Condition 47 note).
         if (typeof rem === 'string' && rem.trim().toLowerCase() === 'close') rem = 'close';
-        yestExport.push({ CC: ccVal.toLowerCase(), Remark: remarkSerial!==null ? remarkSerial : (rem||'') });
+        yestExport.push({ CC: ccVal.toLowerCase(), Remark: remarkSerial!==null ? remarkSerial : (rem||''),
+                          Origin: String(r[yOrigin] ?? r['Origin'] ?? '').trim() });
       }
     });
   }
-  const wsYest = XLSX.utils.json_to_sheet(yestExport, {header:['CC','Remark']});
+  const wsYest = XLSX.utils.json_to_sheet(yestExport, {header:['CC','Remark','Origin']});
 
   /* ── Build main sheet with formulas ────────────────────────────────── */
   // First row: write raw values for non-formula columns, placeholders for formula columns
@@ -2453,9 +2501,9 @@ function exportToExcel() {
     const dayAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Day']});
     ws[dayAddr] = { t:'n', f:`IFERROR(INDEX('LEAD TIME'!C$2:C$${ltRows+1},MATCH(LOWER(${C('Origin')}${r})&"||"&LOWER(${C('Shipping State')}${r}),'LEAD TIME'!D$2:D$${ltRows+1},0)),0)` };
 
-    // Appt (Condition 6): FK types → VLOOKUP on Po_No; "Now" → Sales_Order_Date+7
+    // Appt (Condition 6): FK types → VLOOKUP on Po_No; "Now" → Sales_Order_Date+14
     const apptAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Appt']});
-    ws[apptAddr] = { t:'n', f:`IF(OR(${C('client_type')}${r}="FK-Grocery-VS48860",${C('client_type')}${r}="FK-Hyperlocal-VS46867",${C('client_type')}${r}="FK-Alpha-VS46867"),IFERROR(VLOOKUP(${C('Po_No')}${r},Appointments!A$2:B$${apptRows+1},2,FALSE),""),IF(LOWER(${C('client_type')}${r})="now",IF(ISNUMBER(${C('Sales_Order_Date')}${r}),${C('Sales_Order_Date')}${r}+7,""),""))`, z:'YYYY-MM-DD' };
+    ws[apptAddr] = { t:'n', f:`IF(OR(${C('client_type')}${r}="FK-Grocery-VS48860",${C('client_type')}${r}="FK-Hyperlocal-VS46867",${C('client_type')}${r}="FK-Alpha-VS46867"),IFERROR(VLOOKUP(${C('Po_No')}${r},Appointments!A$2:B$${apptRows+1},2,FALSE),""),IF(LOWER(${C('client_type')}${r})="now",IF(ISNUMBER(${C('Sales_Order_Date')}${r}),${C('Sales_Order_Date')}${r}+14,""),""))`, z:'YYYY-MM-DD' };
 
     // Remark (Condition 7): VLOOKUP from Yesterday on CC match
     // Condition 21 override: closed if PendKgs < OriginKgs AND >0 AND (Modern Trade/Quick Commerce) AND Avenue E-Commerce
@@ -2514,10 +2562,24 @@ function exportToExcel() {
     const gkAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Group Key']});
     ws[gkAddr] = { t:'s', f:`${C('Sales_Order_No')}${r}&IF(${canonOriginExpr(C('Origin')+r)}="indore","|Indore",IF(${canonOriginExpr(C('Origin')+r)}="purnia","|Purnea",""))` };
 
-    // Moq validation (Condition 44): Item_Group = Munchies AND Origin Kgs < 15 -> "MOQ".
+    /* Origin (Condition 50): Amazon Retail India / Vending / Category A /
+       Telesales take the Origin yesterday's plan carried for this CC. Written
+       as a live VLOOKUP into the Yesterday sheet (column C) so a reopened file
+       recalculates to the same Origin the preview showed, with the computed
+       Origin as the fallback when the CC is missing or its Origin is blank.
+       Only emitted for rows that actually matched, so every other row keeps
+       its plain value and no formula can blank an Origin. */
+    if (outputRows[i]._yestOrigin) {
+      const yoLit = String(outputRows[i].Origin || '').replace(/"/g, '""');
+      const yoLook = `VLOOKUP(LOWER(${C('CC')}${r}),Yesterday!A$2:C$${yestRows+1},3,FALSE)`;
+      ws[XLSX.utils.encode_cell({r:r-1, c:colIdx['Origin']})] =
+        { t:'s', f:`IFERROR(IF(${yoLook}="","${yoLit}",${yoLook}),"${yoLit}")` };
+    }
+
+    // Moq validation (Condition 44): Item_Group = Munchies AND Origin Kgs < 10 -> "MOQ".
     // N() turns a blank/text Origin Kgs into 0, matching parseFloat(...)||0 in run().
     const moqAddr = XLSX.utils.encode_cell({r:r-1, c:colIdx['Moq validation']});
-    ws[moqAddr] = { t:'s', f:`IF(AND(LOWER(TRIM(${C('Item_Group')}${r}))="munchies",N(${C('Origin Kgs')}${r})<15),"MOQ","")` };
+    ws[moqAddr] = { t:'s', f:`IF(AND(LOWER(TRIM(${C('Item_Group')}${r}))="munchies",N(${C('Origin Kgs')}${r})<10),"MOQ","")` };
   }
 
   /* ── Apply number formats to date and numeric columns ──────────────── */
